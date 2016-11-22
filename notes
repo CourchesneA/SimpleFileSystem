@@ -1,0 +1,68 @@
+e I-node table
+At the end of a block there is a pointer to the next block
+
+i-node have indexes to block of file
+mode > what you can do to this file
+uid - user id
+gid group id
+size
+pointer 1 - 12
+indirect pointer
+
+
+partition the disk in super block, inodes, data blocks and free bitmap
+
+implement inode for no need of contiguous blocks
+
+When we remove a file (We remove the inode) we have to free all the blocks
+
+Free bitmap
+>Array of binary number, size = nb of block. We are going to use integer instead of bits, so one index (One integer) has information about 32 blocks
+Compare with 0 to see if its free
+Lets use the bitmap only for data blocks
+Use bit masking to compare bitmap ->    a<<1    is used to shift the bits
+0001<<1 = 0010
+for(..){
+ bitmask = 1
+ bitmask << 1
+ if(bitmask & m != 0)
+    isfree
+}
+1 mean free
+You can compare the number with 0 and if its false, iterate through it
+
+Tutorial 2
+
+Fuse Wrapper:
+map our API to the kernel functions
+You can mount your fs with FUSE
+
+Subfunction for handling inode / create,read,write
+
+Directory is a file
+
+Mapping filename -> inode index (Each file has an I-node)
+I nodes which datablocks points to the directory
+Since there is only one directory we can hardcode the first block to be a directory
+
+Inode table is a range of block number
+Writing to inode is writing to block number #
+
+To create a file(File name): (sfs_open)
+-Create an iNode (Look for an empty space) -> i
+-Filename -> i
+
+fopen gives a fd > keep track of the fs (which inode - file - it linked to it), To do this, have a table for fs: fileID, inode, rptr, wptr
+When we call fwrite find the fd that fits this fileID
+When we close the file, we remove the table
+
+By default, open a file set rptr at beggining and wptr at end
+
+To extend a file (add a block), write it as taken in the freebitmap and add its index in the inode
+I-nodes: dont use uid / guid / mone / link
+
+implement in .h and .c file 
+implement data structur to handle bitmap, openfile
+
+Start by creating simple write files (with inodes in memory to start with -> later will need to be on disk)
+We might want to have a cache in memory
