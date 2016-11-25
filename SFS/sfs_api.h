@@ -1,6 +1,16 @@
 //Functions you should implement. 
 //Return -1 for error besides mksfs
 
+typedef struct Inode {
+	int mode;
+	int linkcnt;
+	int uidl;
+	int gid;
+	int size;
+	int ptr[12];
+	int indptr;
+} Inode;
+
 void mksfs(int fresh);
 int sfs_get_next_file_name(char *fname);
 int sfs_get_file_size(char* path);
