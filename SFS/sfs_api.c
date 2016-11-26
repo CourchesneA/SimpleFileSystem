@@ -83,7 +83,21 @@ int sfs_get_next_file_name(char *fname){
   	return 0;
 }
 int sfs_get_file_size(char* path){
-  	return 0;
+	//get index of the file in the directory
+	int dir_index;
+	if((dir_index = sfs_find_in_directory(path)) < 0){
+		printf("Error, file %s not found in directory\n",path);
+		return -1;
+	}
+	//get its inode
+	int inode_nb = directory[dir_index].inode_index;
+	if(inode_nb < 1 || inode_nb > NUM_INODES){
+		printf("Error, incorrect inode index: %d\n",inode_nb);
+		return -1;
+	}
+	int filesize = inode_table[inode_nb].size;
+	printf("File %s have size %d",path, filesize);
+  	return filesize;
 }
 int sfs_fopen(char *name){	//Second
 	//Open or create file and return fd
