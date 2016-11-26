@@ -7,6 +7,7 @@ int sfs_fcreate(char *name);
 int sfs_find_empty_inode();
 int sfs_find_empty_dir_entry();
 int sfs_find_empty_fd();
+int sfs_find_in_directory(char *name);
 
 const int BLOCKS_SIZE = 1024;
 const int NUM_BLOCKS = 25000;
@@ -87,21 +88,18 @@ int sfs_get_file_size(char* path){
 int sfs_fopen(char *name){	//Second
 	//Open or create file and return fd
 	//1. Find its entry in directory or create the file
-	int file_index = -1;	//index in inode table
-	int i;
-	for(i=0;i<DIRECTORY_LENGTH;i++){
-		if(strcmp(directory[i].filename, name)==0){
-			file_index=directory[i].inode_index;
-			break;
-		}
-	}
-	if(file_index == -1){
+	int dir_index = sfs_find_in_directory(name);
+	int file_index;
+	if(dir_index == -1){	//File not found
 		printf("Could not find file: %s in directory, creating file\n", name);
-		if((file_index = sfs_fcreate(name)) == -1 ){
+		if((file_index = sfs_fcreate(name)) == -1 ){	//Get file inode num
 			printf("Error creating file\n");
 			return -1;
 		}
 		printf("Created file with inode_index: %i\n", file_index);
+	}else{
+		file_index = directory[dir_index].inode_index;
+		printf("Retreived file %s as inode number %d", name, file_index);
 	}
 
 	//Now we have the inode index which is not -1
@@ -125,6 +123,8 @@ int sfs_fopen(char *name){	//Second
   	return fd_index;
 }
 int sfs_fclose(int fileID){
+	//Find fd and remove it
+
   	return 0;
 }
 int sfs_frseek(int fileID, int loc){
@@ -198,5 +198,17 @@ int sfs_find_empty_fd(){	//return empty entry index or -1 if not found
 		}
 	}
 	printf("Error, all %i entries in file descriptor table are taken\n",FD_TABLE_LENGTH);
+	return -1;
+}
+
+int sfs_find_in_directory(char *name){
+	//Find a file in the directory and return its index
+	int i;
+	for(i=0;i<DIRECTORY_LENGTH;i++){
+		if(strcmp(directory[i].filename, name)==0){
+			return i;
+		}
+	}
+	printf("File %s not found in directory\n",name);
 	return -1;
 }
