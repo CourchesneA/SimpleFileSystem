@@ -122,9 +122,14 @@ int sfs_fopen(char *name){	//Second
 	//return fd index
   	return fd_index;
 }
-int sfs_fclose(int fileID){
-	//Find fd and remove it
-
+int sfs_fclose(int fileID){	//Find fd and remove it
+	if(!(fd_table[fileID].inode_index > 0 && fd_table[fileID].inode_index < NUM_INODES)){
+		printf("Invalid file descriptor\n");
+		return -1;
+	}
+	File_descriptor_entry empty_fd = {0};		//create an empty FD
+	fd_table[fileID] = empty_fd;		//Assign empty FD to this one
+	printf("Removed file descriptor");
   	return 0;
 }
 int sfs_frseek(int fileID, int loc){
