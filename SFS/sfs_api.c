@@ -129,13 +129,27 @@ int sfs_fclose(int fileID){	//Find fd and remove it
 	}
 	File_descriptor_entry empty_fd = {0};		//create an empty FD
 	fd_table[fileID] = empty_fd;		//Assign empty FD to this one
-	printf("Removed file descriptor");
+	printf("Removed file descriptor\n");
   	return 0;
 }
-int sfs_frseek(int fileID, int loc){
+int sfs_frseek(int fileID, int loc){	//Change the rptr location
+	//TODO add conditions
+	if(!(fd_table[fileID].inode_index > 0 && fd_table[fileID].inode_index < NUM_INODES)){
+		printf("Invalid file descriptor (rptr)\n");
+		return -1;
+	}
+	fd_table[fileID].rptr = loc;
+	printf("Successfully moved read ptr to %d\n", loc);
   	return 0;
 }
-int sfs_fwseek(int fileID, int loc){
+int sfs_fwseek(int fileID, int loc){	//Change the wptr location
+	//TODO add conditions
+	if(!(fd_table[fileID].inode_index > 0 && fd_table[fileID].inode_index < NUM_INODES)){
+		printf("Invalid file descriptor (wptr)\n");
+		return -1;
+	}
+	fd_table[fileID].wptr = loc;
+	printf("Successfully moved write ptr to %d\n", loc);
   	return 0;
 }
 int sfs_fwrite(int fileID, char *buf, int length){
