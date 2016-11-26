@@ -6,25 +6,25 @@
 int sfs_fcreate(char *name);
 int sfs_find_empty_inode();
 int sfs_find_empty_dir_entry();
+int sfs_find_empty_fd();
 
 const int BLOCKS_SIZE = 1024;
-const int NUM_BLOCKS = 50000;
-const int INODE_TABLE_LENGHT = 3;
-const int ROOT_DIRECTORY = 0;
-const int NUM_INODES = 500;	//Limitting to the size of the inode table
-const int DIRECTORY_LENGTH = 200;
-const int FD_TABLE_LENGTH = 20;
+const int NUM_BLOCKS = 25000;
+const int INODE_TABLE_LENGHT = 15;	//Each inode is 72 bytes, so 15 blocks for 200 inodes
+const int ROOT_DIRECTORY = 0;		//Inode index of the root directory
+const int NUM_INODES = 200;			//Limitting to the size of the inode table
+const int DIRECTORY_LENGTH = 200;	//Number of max file in a directory mapping
+const int FD_TABLE_LENGTH = 20;		//Max entry in file descriptor table
 int INODE_TABLE_BLK = 1;
 int FREE_BITMAP_BLK = NUM_BLOCKS-1;
 Inode inode_table[NUM_INODES];
-Directory_entry directory[DIRECTORY_LENGTH];		
+Directory_entry directory[DIRECTORY_LENGTH];
 File_descriptor_entry fd_table[FD_TABLE_LENGTH];
-
 
 void mksfs(int fresh){
 //Format the given virtual disk and creates a SFS on top of it. fresh = create, else opened
 	char *filename = "cVirtualDisk";		//Name of the virtual disk file
-	
+
 
 	if(fresh){
 		if(init_fresh_disk(filename, BLOCKS_SIZE, NUM_BLOCKS)<0){
@@ -44,7 +44,7 @@ void mksfs(int fresh){
 		}
 		//write the first Inode
 		//Lets say we can have 200 inodes
-		Inode root_inode = {.mode=1};	//Every other value in the inode are 0. We use mode to say that the inode is initialized
+		Inode root_inode = {.mode=1};	//Every other value in the inode are 0. We use mode to say that the inode is used
 		printf("Size of inode is: %lu\n", sizeof(root_inode));
 		printf("Size of inode Table is: %lu\n", sizeof(inode_table));
 		inode_table[ROOT_DIRECTORY]=root_inode;
@@ -53,9 +53,15 @@ void mksfs(int fresh){
 		// 	printf("Error while initializing Directory Inode\n");
 		// 	return;
 		// }
+
+		//Initialize directory with empty strings
+		int i;
+		for(i=0; i<DIRECTORY_LENGTH; i++){
+			directory[i].filename = "";
+		}
+
 		//write the free bitmap
 		int free_bitmap[31];	//each int has 16 bits so 16*31=496 which is enough for 494 blocks (6 used for meta data not int free bitmap)
-		int i;
 		for(i=0;i<31;i++){
 			free_bitmap[i]=0;			//at the beggining every block is free
 		}
@@ -63,10 +69,6 @@ void mksfs(int fresh){
 			printf("Error while initializing free bitmap\n");
 			return;
 		}
-
-		
-
-
 
 	}else{
 		if(init_disk(filename, BLOCKS_SIZE, NUM_BLOCKS)<0){
@@ -84,8 +86,8 @@ int sfs_get_file_size(char* path){
 }
 int sfs_fopen(char *name){	//Second
 	//Open or create file and return fd
-	//1. Find its entry in directory
-	int file_index = -1;
+	//1. Find its entry in directory or create the file
+	int file_index = -1;	//index in inode table
 	int i;
 	for(i=0;i<DIRECTORY_LENGTH;i++){
 		if(strcmp(directory[i].filename, name)==0){
@@ -95,13 +97,32 @@ int sfs_fopen(char *name){	//Second
 	}
 	if(file_index == -1){
 		printf("Could not find file: %s in directory, creating file\n", name);
-		file_index = sfs_fcreate(name);
+		if((file_index = sfs_fcreate(name)) == -1 ){
+			printf("Error creating file\n");
+			return -1;
+		}
 		printf("Created file with inode_index: %i\n", file_index);
 	}
 
+	//Now we have the inode index which is not -1
+	//2. Create entry in FD table and return this entry
+	//find the first empty spot in fd_table
+	int fd_index;
+	if((fd_index = sfs_find_empty_fd()) == -1){
+		printf("Error while looking for free file descriptor\n");
+		return -1;
+	}
+	//fd_table[fd_index]
+	File_descriptor_entry fd = {.inode_index = file_index,	//TODO might want to check for fd_outofbound
+							.rptr=0,
+							.wptr=inode_table[file_index].size};	//Use the size of the file to set the rptr
+							//wprt should be 0 for new file since size is 0
 
+	fd_table[fd_index] = fd;
+	printf("Created entry %d in fd table, wptr at %d",fd_index,inode_table[file_index].size);
 
-  	return 0;
+	//return fd index
+  	return fd_index;
 }
 int sfs_fclose(int fileID){
   	return 0;
@@ -158,7 +179,7 @@ int sfs_find_empty_inode(){
 	printf("Error, all %i entries in inode table are taken\n",INODE_TABLE_LENGHT);
 	return -1;
 }
-int sfs_find_empty_dir_entry(){
+int sfs_find_empty_dir_entry(){	//return empty entry index or -1 if not found
 	int i;
 	for(i=0; i<DIRECTORY_LENGTH; i++){
 		if(directory[i].inode_index == 0){
@@ -169,3 +190,13 @@ int sfs_find_empty_dir_entry(){
 	return -1;
 }
 
+int sfs_find_empty_fd(){	//return empty entry index or -1 if not found
+	int i;
+	for(i=0; i<FD_TABLE_LENGTH; i++){
+		if(fd_table[i].inode_index == 0){	//If inode_index is 0 then fd is empty
+			return i;
+		}
+	}
+	printf("Error, all %i entries in file descriptor table are taken\n",FD_TABLE_LENGTH);
+	return -1;
+}
