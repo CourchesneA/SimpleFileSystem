@@ -16,11 +16,14 @@ const int ROOT_DIRECTORY = 0;		//Inode index of the root directory
 const int NUM_INODES = 200;			//Limitting to the size of the inode table
 const int DIRECTORY_LENGTH = 200;	//Number of max file in a directory mapping
 const int FD_TABLE_LENGTH = 20;		//Max entry in file descriptor table
-int INODE_TABLE_BLK = 1;
-int FREE_BITMAP_BLK = NUM_BLOCKS-1;
+const int INODE_TABLE_BLK = 1;
+int FREE_BITMAP_LENGTH = 4;			// 25000 block / (1024 byte * 8bits)
+int FREE_BITMAP_BLK = NUM_BLOCKS-FREE_BITMAP_LENGTH-1;
+//In-memory structures;
 Inode inode_table[NUM_INODES];
 Directory_entry directory[DIRECTORY_LENGTH];
 File_descriptor_entry fd_table[FD_TABLE_LENGTH];
+int bitmap[]
 
 void mksfs(int fresh){
 //Format the given virtual disk and creates a SFS on top of it. fresh = create, else opened
@@ -131,7 +134,7 @@ int sfs_fopen(char *name){	//Second
 							//wprt should be 0 for new file since size is 0
 
 	fd_table[fd_index] = fd;
-	printf("Created entry %d in fd table, wptr at %d",fd_index,inode_table[file_index].size);
+	printf("Created entry %d in fd table, wptr at %d\n",fd_index,inode_table[file_index].size);
 
 	//return fd index
   	return fd_index;
@@ -167,6 +170,14 @@ int sfs_fwseek(int fileID, int loc){	//Change the wptr location
   	return 0;
 }
 int sfs_fwrite(int fileID, char *buf, int length){
+	//Allocate blocks in the bitmap
+
+	//Modify i-Node table in memory
+
+	//read block and append data
+
+	//flush modification to disk
+
   	return 0;
 }
 int sfs_fread(int fileID, char *buf, int length){
