@@ -6,6 +6,6 @@ int main(int argc, char *argv[]){
     mksfs(1);
     sfs_fopen("testfile");
    	printf("test done\n");
-   	int z=25000;
-   	printf("int size: %lu\n",sizeof(z));
+   	char z[3125];
+   	printf("int size: %lu\n",sizeof(z));	//is 4
 }

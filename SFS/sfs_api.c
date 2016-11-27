@@ -2,12 +2,20 @@
 #include "disk_emu.h"
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
+//helpers
 int sfs_fcreate(char *name);
 int sfs_find_empty_inode();
 int sfs_find_empty_dir_entry();
 int sfs_find_empty_fd();
 int sfs_find_in_directory(char *name);
+int set_block_free(int blocknum);
+int set_block_used(int blocknum);
+int find_free_block();
+int read_bitmap();
+int write_bitmap(char* bitmap);
+
 
 const int BLOCKS_SIZE = 1024;
 const int NUM_BLOCKS = 25000;
@@ -18,12 +26,12 @@ const int DIRECTORY_LENGTH = 200;	//Number of max file in a directory mapping
 const int FD_TABLE_LENGTH = 20;		//Max entry in file descriptor table
 const int INODE_TABLE_BLK = 1;
 int FREE_BITMAP_LENGTH = 4;			// 25000 block / (1024 byte * 8bits)
-int FREE_BITMAP_BLK = NUM_BLOCKS-FREE_BITMAP_LENGTH-1;
+int FREE_BITMAP_BLK = NUM_BLOCKS-5;
 //In-memory structures;
 Inode inode_table[NUM_INODES];
 Directory_entry directory[DIRECTORY_LENGTH];
 File_descriptor_entry fd_table[FD_TABLE_LENGTH];
-int bitmap[]
+//char bitmap[3125];
 
 void mksfs(int fresh){
 //Format the given virtual disk and creates a SFS on top of it. fresh = create, else opened
@@ -65,8 +73,12 @@ void mksfs(int fresh){
 		}
 
 		//write the free bitmap
-		int free_bitmap[31];	//each int has 16 bits so 16*31=496 which is enough for 494 blocks (6 used for meta data not int free bitmap)
-		for(i=0;i<31;i++){
+		int free_bitmap[3125];	//
+		for(i=0;i<3125;i++){
+			if(i<2){
+				free_bitmap[i]=0xFF;
+				continue;
+			}
 			free_bitmap[i]=0;			//at the beggining every block is free
 		}
 		if ( write_blocks(FREE_BITMAP_BLK, 1, free_bitmap) < 0){		//Last block, 1 block
@@ -255,4 +267,102 @@ int sfs_find_in_directory(char *name){
 	}
 	printf("File %s not found in directory\n",name);
 	return -1;
+}
+
+int set_block_free(int blocknum){	//16 to 24995
+	if(blocknum > 16 || blocknum >= 24995 ){
+		printf("Error, block number %d is not a data block\n", blocknum);
+		return -1;
+	}
+	//read the bitmap
+	char bitmap[3125];
+	read_bitmap(bitmap);
+
+	//set the bit
+	int bitmap_index = blocknum / 8;	//find which of the 782 int to change
+	char bit_number = blocknum % 8;		//find which bit
+	char bit_value = 1 << bit_number;	//value of this bit
+	//check current value
+	char char_value	= bitmap[bitmap_index];
+	if(((char_value >> bit_number) & 1)){	//if the bit is free
+		printf("Error ,trying to free a block already free\n");
+		return -1;
+	}
+	char new_char_value = char_value | bit_value;	// set the bit
+	bitmap[bitmap_index] = new_char_value;
+
+	//write the bitmap
+	int status;
+	if((status = write_bitmap(bitmap))<0){
+		return -1;
+	}
+	return 1;
+}
+
+int set_block_used(int blocknum){		//we will use 0 for used
+	if(blocknum > 16 || blocknum >= 24995 ){
+		printf("Error, block number %d is not a data block\n", blocknum);
+		return -1;
+	}
+	//read the bitmap
+	char bitmap[3125];
+	read_bitmap(bitmap);
+
+	//set the bit
+	int bitmap_index = blocknum / 8;	//find which of the 782 int to change
+	char bit_number = blocknum % 8;		//find which bit
+	char bit_value = 1 << bit_number;	//value of this bit
+	//check current value
+	char char_value	= bitmap[bitmap_index];
+	if(!((char_value >> bit_number) & 1)){	//if the bits where the same then true
+		printf("Error ,trying to use an occupied block\n");
+		return -1;
+	}
+	char new_char_value = char_value | bit_value;	// clear the bit
+	bitmap[bitmap_index] = new_char_value;
+
+	//write the bitmap
+	int status;
+	if((status = write_bitmap(bitmap))<0){
+		return -1;
+	}
+	return 1;
+}
+
+int find_free_block(){	//We will use 1 =free
+	char bitmap[3125];
+	read_bitmap(bitmap);
+	int i;
+	for(i=2;i<3125;i++){		//Bytes before 2 are used for SB and inodes
+		if(bitmap[i]){		//There is one free block in this char
+			int j;
+			for(j=0;j<8;j++){
+				if((bitmap[i] >> j) & 1 ){
+					return 8*i+j;		//return the free block number
+				}
+			}
+			printf("Error, unexpected\n");
+		}
+	}
+	printf("Error, no free block found\n");
+	return -1;
+}
+
+int read_bitmap(char *bitmap){
+	int status;
+	if((status=read_blocks(FREE_BITMAP_BLK,FREE_BITMAP_LENGTH, bitmap))<0){
+		printf("Error while reading bitmap from disk\n");
+		return -1;
+	}
+	return 0;
+
+}
+
+int write_bitmap(char* bitmap){
+	int status;
+	if((status=write_blocks(FREE_BITMAP_BLK,FREE_BITMAP_LENGTH, bitmap))<0){
+		printf("Error while writing bitmap to disk\n");
+		return -1;
+	}
+	return status;
 }
