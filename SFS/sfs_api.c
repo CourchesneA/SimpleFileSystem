@@ -15,6 +15,7 @@ int set_block_used(int blocknum);
 int find_free_block();
 int read_bitmap();
 int write_bitmap(char* bitmap);
+int add_block_to_inode(int blocknum, Inode inode);
 
 
 const int BLOCKS_SIZE = 1024;
@@ -32,11 +33,12 @@ Inode inode_table[NUM_INODES];
 Directory_entry directory[DIRECTORY_LENGTH];
 File_descriptor_entry fd_table[FD_TABLE_LENGTH];
 //char bitmap[3125];
+int INT_SIZE;
 
 void mksfs(int fresh){
 //Format the given virtual disk and creates a SFS on top of it. fresh = create, else opened
 	char *filename = "cVirtualDisk";		//Name of the virtual disk file
-
+	INT_SIZE = sizeof(int);
 
 	if(fresh){
 		if(init_fresh_disk(filename, BLOCKS_SIZE, NUM_BLOCKS)<0){
@@ -182,14 +184,50 @@ int sfs_fwseek(int fileID, int loc){	//Change the wptr location
   	return 0;
 }
 int sfs_fwrite(int fileID, char *buf, int length){
+	if(fd_table[fileID].inode_index < 1){
+		printf("Error, could not find file descriptor in open file table \n");
+		return -1;
+	}
+	Inode file_inode = inode_table[fd_table[fileID].inode_index];
+
+	//find how much more block do we need
+	int current_fblocks = file_inode.size/1024;
+	if(file_inode.size%1024 != 0){
+		current_fblocks++;
+	}
+	int new_fblocks = (fd_table[fileID].wptr+length)/1024;
+	if((fd_table[fileID].wptr+length)%1024 != 0){
+		new_fblocks++;
+	}
+	int num_blocks_to_add = new_fblocks - current_fblocks;	// we will decrement this for looping
+
 	//Allocate blocks in the bitmap
+	int new_blocks_numbers[num_blocks_to_add];	//This will hold the numblock of new allocated blocks
+	int i;
+	for(i=0; i<num_blocks_to_add;i++){
+		int blocknum;
+		if((blocknum = find_free_block()) < 0){		//also sets this block as used
+			printf("Error while allocating blocks to file\n");
+			return -1;
+		}
+		new_blocks_numbers[i] = blocknum;
+	}	//now all block allocated has their numbers in 
 
 	//Modify i-Node table in memory
+	i=0;
+	int status;
+	for(i=0; num_blocks_to_add > 0; num_blocks_to_add--, i++){
+		if((status = add_block_to_inode(new_blocks_numbers[i], inode_table[fd_table[fileID].inode_index] )) < 0 ){
+			printf("Error adding blocks to inode\n");
+			return -1;
+		}
+	}	//Now inode table points to these blocks
 
 	//read block and append data
+	//TODO
 
 	//flush modification to disk
-
+	//TODO
   	return 0;
 }
 int sfs_fread(int fileID, char *buf, int length){
@@ -199,7 +237,7 @@ int sfs_remove(char *file){
   	return 0;
 }
 
-//Helpers
+//-----------------Helpers----------------------
 int sfs_fcreate(char *name){	//create file and return its inode_index
 	//create an inode
 	//find empty inode
@@ -329,8 +367,8 @@ int set_block_used(int blocknum){		//we will use 0 for used
 	return 1;
 }
 
-int find_free_block(){	//We will use 1 =free
-	char bitmap[3125];
+int find_free_block(){	//Also set the block as used
+	char bitmap[3125];	//We will use 1 =free
 	read_bitmap(bitmap);
 	int i;
 	for(i=2;i<3125;i++){		//Bytes before 2 are used for SB and inodes
@@ -338,7 +376,12 @@ int find_free_block(){	//We will use 1 =free
 			int j;
 			for(j=0;j<8;j++){
 				if((bitmap[i] >> j) & 1 ){
-					return 8*i+j;		//return the free block number
+					int found_block = 8*i+j;
+					int status;
+					if((status = set_block_used(found_block))<0){
+						printf("Error setting found bit as used\n");
+					}
+					return found_block;		//return the free block number
 				}
 			}
 			printf("Error, unexpected\n");
@@ -365,4 +408,53 @@ int write_bitmap(char* bitmap){
 		return -1;
 	}
 	return status;
+}
+
+int add_block_to_inode(int blocknum, Inode inode){
+	int i;
+	for(i=0; i<12; i++){
+		if(!(inode.ptr[i] > 0)){	//empty ptr, use this one
+			inode.ptr[i] = blocknum;
+			return 0;
+		}
+	}
+	int int_in_block = 1024/INT_SIZE;
+	int ind_ptr[int_in_block];	
+	memset( ind_ptr, 0, int_in_block*INT_SIZE);	//Init the arrays with zeros
+	int ind_ptr_block;
+	if(!((ind_ptr_block = inode.indptr) > 0)){	//indirect pointer does not exists
+		//Create the block
+		if((ind_ptr_block = find_free_block()) < 0){
+			printf("Error while looking for free block (new ind ptr)\n");
+			return -1;
+		}
+		printf("Assigned data block for indirect pointer\n");
+		//add the pointer at the beggining
+		ind_ptr[0] = blocknum;
+	}else{
+		//read the block
+		if((ind_ptr_block = read_blocks(ind_ptr_block,1,ind_ptr)) < 0){
+			printf("Error while reading inode indirect pointer block\n");
+			return -1;
+		}
+		//if not full add a pointer
+		for(i=0;i<int_in_block;i++){
+			if(ind_ptr[i] == 0){
+				ind_ptr[i] = blocknum;
+				break;
+			}
+		}
+		if(i == int_in_block){	//catch no more space
+			printf("No more space in inode, all %d pointers are taken\n", 12+int_in_block);
+			return -1;
+		}
+	}
+	//now pointer exists in memory
+	//write the block
+	int status;
+	if((status = write_blocks(ind_ptr_block,1,ind_ptr)) < 0){
+			printf("Error while writing indirect pointer to block\n");
+			return -1;
+	}
+	return 0;
 }

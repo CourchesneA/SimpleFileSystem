@@ -17,7 +17,6 @@ typedef struct Directory_entry {
 } Directory_entry;
 
 typedef struct File_descriptor_entry {
-	char *fileID;
 	int inode_index;
 	int rptr;
 	int wptr;
