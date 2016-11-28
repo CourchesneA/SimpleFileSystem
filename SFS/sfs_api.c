@@ -123,6 +123,7 @@ int sfs_fopen(char *name){	//Second
 	int file_index;
 	if(dir_index == -1){	//File not found
 		printf("Could not find file: %s in directory, creating file\n", name);
+		//TODO check namelength
 		if((file_index = sfs_fcreate(name)) == -1 ){	//Get file inode num
 			printf("Error creating file\n");
 			return -1;
@@ -223,7 +224,37 @@ int sfs_fwrite(int fileID, char *buf, int length){
 		}
 	}	//Now inode table points to these blocks
 
-	//read block and append data
+	int int_in_block = 1024/INT_SIZE;
+	//read block
+	//find which is the last block pointed by wptr
+	int write_loc = fd_table[fileID].wptr / 1024;	//result is something like 5th block
+	int write_loc_offset = fd_table[fileID].wptr % 1024;
+	int last_write_block;	//find which block does this points to
+	if(write_loc > 0 && write_loc < 12){
+		last_write_block = file_inode.ptr[write_loc];
+	}else if( write_loc < int_in_block){	//block pointed by indirect pointer
+		int ind_ptr_block = file_inode.indptr;		//get num of pointers block
+
+		int ind_ptrs[int_in_block];
+		if(read_blocks(ind_ptr_block,1,ind_ptr) < 0){	//Read that block in array
+			printf("Error while reading indirect pointer block\n");
+			return -1;
+		}
+		last_write_block = ind_ptrs[write_loc];
+
+	}else{
+		printf("Error, write pointer points to block %d, which is outside file\n", write_loc);
+		return -1;
+	}
+	char rbuf[512];
+	read_blocks(last_write_block, 1, rbuf);
+	//Append data to this block
+	for(i=write_loc_offset/2; i<512; i++){	//Start at the last char written
+		rbuf[i] = buf[i];
+	}	//Block is now full, go to other blocks
+	//Append data to new blocks
+	int j;
+	for(j=0;)
 	//TODO
 
 	//flush modification to disk
@@ -433,7 +464,7 @@ int add_block_to_inode(int blocknum, Inode inode){
 		ind_ptr[0] = blocknum;
 	}else{
 		//read the block
-		if((ind_ptr_block = read_blocks(ind_ptr_block,1,ind_ptr)) < 0){
+		if(read_blocks(ind_ptr_block,1,ind_ptr) < 0){
 			printf("Error while reading inode indirect pointer block\n");
 			return -1;
 		}
