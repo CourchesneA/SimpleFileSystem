@@ -255,8 +255,18 @@ int sfs_fwrite(int fileID, char *buf, int length){
 		printf("Error while writing indirect pointer to block\n");
 		return -1;
 	}
+
 	//flush inode
-	//TODO
+	//We never have to re-read inode table since its always modified in memory as well, so its in sync
+	if(sizeof(inode_table) > INODE_TABLE_LENGHT){
+		printf("Unexpected error, inode table is more than 20 blocks\n");
+		return -1;
+	}
+	if((write_blocks(INODE_TABLE_BLK,INODE_TABLE_BLK,inode_table)) < 0){
+		printf("Error while inode table to block\n");
+		return -1;
+	}
+	
 
 
 	return bytes_written;
@@ -460,6 +470,17 @@ int sfs_fcreate(char *name){	//create file and return its inode_index
 	Directory_entry new_dir_entry = {.filename = name, .inode_index = new_dir_index};
 	directory[new_dir_index] = new_dir_entry;
 	//Here we could modify the directory inode if there was anything to do with it
+
+	//Save inode table to disk
+	if(sizeof(inode_table) > INODE_TABLE_LENGHT){
+		printf("Unexpected error, inode table is more than 20 blocks\n");
+		return -1;
+	}
+	if((write_blocks(INODE_TABLE_BLK,INODE_TABLE_BLK,inode_table)) < 0){
+		printf("Error while inode table to block\n");
+		return -1;
+	}
+
 	return new_inode_index;
 }
 
