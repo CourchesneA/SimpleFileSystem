@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <stdlib.h>
 
 //helpers
 int sfs_fcreate(char *name);
@@ -16,6 +17,7 @@ int find_free_block();
 int read_bitmap();
 int write_bitmap(char* bitmap);
 int add_block_to_inode(int blocknum, Inode inode);
+int file_get_nth_block(int blocknum, Inode inode);
 
 
 const int BLOCKS_SIZE = 1024;
@@ -197,39 +199,23 @@ int sfs_fwrite(int fileID, char *buf, int length){
 	int bytes_written = 0;
 	int index_to_write;
 	int current_block_num;
-	int int_in_block = 1024/INT_SIZE;
 	
 	//Load last block
 	//find which is the last block pointed by wptr
 	int write_loc = fd_table[fileID].wptr / 1024;	//result is something like 5th block
 	int write_loc_offset = fd_table[fileID].wptr % 1024;
 	int last_write_block;	//find which block does this points to
-	if(fd_table[fileID].wptr % 2 == 1){
-		printf("Error, corrupted write pointer: not aligned to chars\n");
-		return -1;
+	
+	if((last_write_block = file_get_nth_block(write_loc,file_inode)) < 0){
+		printf("Error, could not get block number of read pointer\n");
 	}
-	if(write_loc > 0 && write_loc < 12){
-		last_write_block = file_inode.ptr[write_loc];
-	}else if( write_loc < int_in_block){	//block pointed by indirect pointer
-		int ind_ptr_block = file_inode.indptr;		//get num of pointers block
 
-		int ind_ptrs[int_in_block];
-		if(read_blocks(ind_ptr_block,1,ind_ptrs) < 0){	//Read that block in array
-			printf("Error while reading indirect pointer block\n");
-			return -1;
-		}
-		last_write_block = ind_ptrs[write_loc];
-
-	}else{
-		printf("Error, write pointer points to block %d, which is outside file\n", write_loc);
-		return -1;
-	}
 	char rbuf[1024];
 	if(read_blocks(last_write_block, 1, rbuf) < 0){
 		printf("Error, could not read data block pointed by write pointer\n");
 		return -1;
 	}
-	index_to_write = write_loc_offset/2;
+	index_to_write = write_loc_offset;
 	current_block_num = last_write_block;
 	
 	for(i=0;i<length;i++){//for each byte
@@ -258,18 +244,21 @@ int sfs_fwrite(int fileID, char *buf, int length){
 		}	//now we know there is space to write a char
 
 		rbuf[index_to_write] = buf[i];	//Add byte to block
-		bytes_written++;		
+		bytes_written++;
+		file_inode.size++;		
 		fd_table[fileID].wptr++;
 		
 	}
+	//TODO investigate reald nb of bytes written to disk on error
 	//flush last block
 	if((write_blocks(current_block_num,1,rbuf)) < 0){
 		printf("Error while writing indirect pointer to block\n");
 		return -1;
 	}
+	//flush inode
+	//TODO
 
-	//update size
-	file_inode.size+= bytes_written;
+
 	return bytes_written;
 
 
@@ -343,7 +332,68 @@ int sfs_fwrite(int fileID, char *buf, int length){
 	//TODO*/
 }
 int sfs_fread(int fileID, char *buf, int length){
-  	return 0;
+	//TODO check file not opened
+
+	int i;
+	int bytes_read = 0;
+	int index_to_read;
+	int current_block_num;
+	//int int_in_block = 1024/INT_SIZE;
+	int read_buffer[length];
+	memset(read_buffer,0,length*sizeof(int));
+	Inode file_inode = inode_table[fd_table[fileID].inode_index];
+	
+	//Load last block
+	//find which is the block pointed by rptr
+	int read_loc = fd_table[fileID].rptr / 1024;	//result is something like 5th block
+	int read_loc_offset = fd_table[fileID].rptr % 1024;
+	int last_read_block;	//find which block does this points to
+	if((last_read_block = file_get_nth_block(read_loc,file_inode)) < 0){
+		printf("Error, could not get block number of read pointer\n");
+	}
+
+	char block_buf[1024];
+	if(read_blocks(last_read_block, 1, block_buf) < 0){
+		printf("Error, could not read data block pointed by write pointer\n");
+		return -1;
+	}	//block is now in read_buf
+	index_to_read = read_loc_offset;
+	current_block_num = last_read_block;
+	
+	for(i=0;i<length;i++){//for each byte
+		if(fd_table[fileID].rptr > file_inode.size){
+			printf("Error, read pointer is out of file\n");
+			memcpy(buf,read_buffer, length);
+  			return bytes_read*-1;
+		}
+		if(index_to_read >= 1024){	//reached end of block
+			//fetch next block
+			memset(block_buf,0,1024);	//clear block cache
+			read_loc++;
+			if((last_read_block = file_get_nth_block(read_loc,file_inode)) < 0){
+				printf("Error, could not get block number of read pointer\n");
+			}
+			if(read_blocks(last_read_block, 1, block_buf) < 0){
+				printf("Error, could not read data block pointed by write pointer\n");
+				return -1;
+			}
+
+			//TODO catch errors
+				
+			//set index to 0 and clear buffer
+			index_to_read = 0;
+			
+		}	//now we know there is bytes to read in buf
+
+		//read a byte from block in read_buffer
+		read_buffer[i] = block_buf[index_to_read++];
+		bytes_read++;
+		fd_table[fileID].rptr++;
+		
+	}
+
+	memcpy(buf,read_buffer, length);
+  	return bytes_read;
 }
 int sfs_remove(char *file){
   	return 0;
@@ -563,10 +613,32 @@ int add_block_to_inode(int blocknum, Inode inode){
 	}
 	//now pointer exists in memory
 	//write the block
-	int status;
-	if((status = write_blocks(ind_ptr_block,1,ind_ptr)) < 0){
+
+	if(write_blocks(ind_ptr_block,1,ind_ptr) < 0){
 			printf("Error while writing indirect pointer to block\n");
 			return -1;
 	}
 	return 0;
+}
+
+int file_get_nth_block(int blocknum, Inode inode){
+	int int_in_block = 1024/INT_SIZE;
+	int block_index;
+	if(blocknum > 0 && blocknum < 12){
+		block_index = inode.ptr[blocknum];
+	}else if( blocknum < int_in_block+12){	//block pointed by indirect pointer
+		int ind_ptr_block = inode.indptr;		//get num of pointers block
+
+		int ind_ptrs[int_in_block];
+		if(read_blocks(ind_ptr_block,1,ind_ptrs) < 0){	//Read that block in array
+			printf("Error while reading indirect pointer block\n");
+			return -1;
+		}
+		block_index = ind_ptrs[blocknum-12];
+
+	}else{
+		printf("Error, write pointer points to inode block %d, which is outside file\n", blocknum);
+		return -1;
+	}
+	return block_index;
 }
