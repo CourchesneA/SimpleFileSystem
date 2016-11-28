@@ -190,8 +190,90 @@ int sfs_fwrite(int fileID, char *buf, int length){
 		return -1;
 	}
 	Inode file_inode = inode_table[fd_table[fileID].inode_index];
+	
 
-	//find how much more block do we need
+//New version, doing step-by-step in a loop
+	int i;
+	int bytes_written = 0;
+	int index_to_write;
+	int current_block_num;
+	int int_in_block = 1024/INT_SIZE;
+	
+	//Load last block
+	//find which is the last block pointed by wptr
+	int write_loc = fd_table[fileID].wptr / 1024;	//result is something like 5th block
+	int write_loc_offset = fd_table[fileID].wptr % 1024;
+	int last_write_block;	//find which block does this points to
+	if(fd_table[fileID].wptr % 2 == 1){
+		printf("Error, corrupted write pointer: not aligned to chars\n");
+		return -1;
+	}
+	if(write_loc > 0 && write_loc < 12){
+		last_write_block = file_inode.ptr[write_loc];
+	}else if( write_loc < int_in_block){	//block pointed by indirect pointer
+		int ind_ptr_block = file_inode.indptr;		//get num of pointers block
+
+		int ind_ptrs[int_in_block];
+		if(read_blocks(ind_ptr_block,1,ind_ptrs) < 0){	//Read that block in array
+			printf("Error while reading indirect pointer block\n");
+			return -1;
+		}
+		last_write_block = ind_ptrs[write_loc];
+
+	}else{
+		printf("Error, write pointer points to block %d, which is outside file\n", write_loc);
+		return -1;
+	}
+	char rbuf[1024];
+	if(read_blocks(last_write_block, 1, rbuf) < 0){
+		printf("Error, could not read data block pointed by write pointer\n");
+		return -1;
+	}
+	index_to_write = write_loc_offset/2;
+	current_block_num = last_write_block;
+	
+	for(i=0;i<length;i++){//for each byte
+		if(index_to_write >= 1024){	//Block is full, get new block
+			//flush block
+			if((write_blocks(current_block_num,1,rbuf)) < 0){
+				printf("Error while writing indirect pointer to block\n");
+				return bytes_written*(-1);
+			}
+			//get new block
+				//Create block
+				int new_block_num;
+				if((new_block_num = find_free_block()) < 1){
+					printf("Error while looking for new block\n");
+					return bytes_written*(-1);
+				}
+				//Assign in inode_table
+				if(add_block_to_inode(new_block_num, file_inode) < 0){
+					printf("Error while adding new block to inode\n");
+					return bytes_written*(-1);
+				}
+				current_block_num = new_block_num;	//Update block number
+			//set index to 0 and clear buffer
+			index_to_write = 0;
+			memset(rbuf,0,1024);
+		}	//now we know there is space to write a char
+
+		rbuf[index_to_write] = buf[i];	//Add byte to block
+		bytes_written++;		
+		fd_table[fileID].wptr++;
+		
+	}
+	//flush last block
+	if((write_blocks(current_block_num,1,rbuf)) < 0){
+		printf("Error while writing indirect pointer to block\n");
+		return -1;
+	}
+
+	//update size
+	file_inode.size+= bytes_written;
+	return bytes_written;
+
+
+	/*//find how much more block do we need
 	int current_fblocks = file_inode.size/1024;
 	if(file_inode.size%1024 != 0){
 		current_fblocks++;
@@ -258,8 +340,7 @@ int sfs_fwrite(int fileID, char *buf, int length){
 	//TODO
 
 	//flush modification to disk
-	//TODO
-  	return 0;
+	//TODO*/
 }
 int sfs_fread(int fileID, char *buf, int length){
   	return 0;
