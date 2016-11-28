@@ -396,6 +396,44 @@ int sfs_fread(int fileID, char *buf, int length){
   	return bytes_read;
 }
 int sfs_remove(char *file){
+	//remove from directory entry
+	//get its number
+	int file_index = sfs_find_in_directory(file);
+	int inode_num = directory[file_index].inode_index;
+	//directory[file_index] = {.filename = ""};	//clear the entry
+	memset(&directory[file_index], 0, sizeof(Directory_entry));
+	Inode inode = inode_table[inode_num];
+	//free blocks
+	int i;
+	for(i=0;i<12;i++){	//clear block from direct pointers
+		int ptr_value;
+		if((ptr_value =inode.ptr[i]) > 0){
+			if(set_block_free(ptr_value) < 0){
+				printf("Error trying to free block to remove file\n");
+				return -1;
+			}
+		}
+	}
+	//load indirect pointers block
+	int ind_ptr_index = inode.indptr;
+	int ind_ptr_block[1024/INT_SIZE];
+	if(read_blocks(ind_ptr_index,1,ind_ptr_block) <0 ){
+		printf("Error reading indirect pointer block\n");
+		return -1;
+	}
+	for(i = 0; i< 1024/INT_SIZE; i++){
+		int ptr_value;
+		if((ptr_value = ind_ptr_block[i]) > 0){
+			if(set_block_free(ptr_value) < 0){
+				printf("Error trying to free block to remove file (indirect ptr)\n");
+				return -1;
+			}
+		}
+	}
+	//remove inode
+	//inode_table[inode_num] = {};
+	memset(&inode_table[inode_num],0,sizeof(Inode));
+	
   	return 0;
 }
 
