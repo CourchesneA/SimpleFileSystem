@@ -346,12 +346,15 @@ int test_read_write_out_of_bound(int *file_id, int *file_sizes, char **file_name
         }
         //Attempt to read far larger than file. Should return error. 
         buf = calloc(file_sizes[i] + ABS_CAP_FILE_SIZE, sizeof(char));
+        //Shift read pointer to 0
+        res = sfs_frseek(file_id[i], 0);
+        if(res < 0)
+          fprintf(stderr, "Warning: sfs_frseek returned positive. Negative seek location attempted. Potential frseek fail?\n");
         res = sfs_fread(file_id[i], buf, file_sizes[i] + ABS_CAP_FILE_SIZE);
-        if(res > 0){
-            fprintf(stderr, "Error: sfs_fread returned positive length. \nThis should be beyond file capacity to read. \nRequested %d to read, Read %d\n", ABS_CAP_FILE_SIZE + file_sizes[i], res);
+        //When i read over the file size, return the maximum read amount
+        if(res != file_sizes[i]){
+            fprintf(stderr, "Error: Length read should be file size\nRequested %d to read, Should be Read: %d, Read %d\n", ABS_CAP_FILE_SIZE + file_sizes[i], file_sizes[i], res);
             *err_no += 1;
-        }else{
-          fprintf(stderr, "Returned error. This is Ok\n");
         }
         free(buf);
     }
@@ -373,17 +376,15 @@ int test_overflow_open(int *file_id, int *file_sizes, int *write_ptr, char **fil
     file_names[i] = rand_name();
     file_id[i] = sfs_fopen(file_names[i]);
     //If we hit the cap and the file_id return is negative, we are good and stop
-    if(file_id[i] < 0 && i >= MAX_FD){
+    if(file_id[i] < 0){
+        printf("File %s failed to open\n", file_names[i]);
         printf("Maximum number of files opened. This is ok. \n");
         ret = i;
         free(file_names[i]);
+        file_names[i] = NULL;
         break;
-    }//We haven't hit the cap yet but your file system failed. Error!
-    else if (file_id[i] < 0) {
-      fprintf(stderr, "ERROR: Cannot open file %s\n", file_names[i]);
-      *err_no += 1;
     }
-    printf("File Opened %d\n", i);
+    printf("File Opened %s\n", file_names[i]);
   }
   //Check if we got the same file id for different files. 
   for (int i = 0; i < ret; i++) {
@@ -401,17 +402,15 @@ int test_overflow_open(int *file_id, int *file_sizes, int *write_ptr, char **fil
     file_names[i] = rand_name();
     file_id[i] = sfs_fopen(file_names[i]);
     //If we hit the cap and the file_id return is negative, we are good and stop
-    if(file_id[i] < 0 && i >= MAX_FD){
+    if(file_id[i] < 0){
+        printf("File %s failed to open\n", file_names[i]);
         printf("Maximum number of files opened.\n");
         ret = i;
         free(file_names[i]);
+        file_names[i] = NULL;
         break;
-    }//We haven't hit the cap yet but your file system failed. Error!
-    else if (file_id[i] < 0) {
-      fprintf(stderr, "ERROR: Cannot open file %s\n", file_names[i]);
-      *err_no += 1;
     }
-    printf("File Opened %d\n", i);
+    printf("File Opened %s\n", file_names[i]);
   }
   //Check if we got the same file id for different files. 
   for (int i = 0; i < ret + 1; i++) {
@@ -488,7 +487,7 @@ int test_get_file_name(char **file_names, int num_file, int *err_no){
     for(int i = 0; i < num_file; i++){
         name_list[i] = calloc(MAX_FNAME_LENGTH*2, sizeof(char));
         res = sfs_get_next_file_name(name_list[i]);
-        if (res <= 0) {
+        if (res < 0) {
             fprintf(stderr, "Warning: the sfs_get_next_file_name returned negative values\n");
         }
     }
@@ -507,6 +506,15 @@ int test_get_file_name(char **file_names, int num_file, int *err_no){
       }
     }
 
+    name = calloc(MAX_FNAME_LENGTH*2, sizeof(char));
+    res = sfs_get_next_file_name(name);
+    if(res != 0){
+        fprintf(stderr, "ERROR: End of namelist. Should return 0.\n");
+        *err_no += 1;
+    }
+    free(name);
+
+
     for(int i = 0; i < num_file; i++){
       printf("Collected list: %s\n", name_list[i]);
     }
@@ -521,6 +529,13 @@ int test_get_file_name(char **file_names, int num_file, int *err_no){
         free(name_list[i]);
         free(name);
     }
+    name = calloc(MAX_FNAME_LENGTH*2, sizeof(char));
+    res = sfs_get_next_file_name(name);
+    if(res != 0){
+        fprintf(stderr, "ERROR: End of namelist. Should return 0.\n");
+        *err_no += 1;
+    }
+    free(name);
     printf("\n-------------------------------\nTest_num[%d]: Current Error Num: %d\n--------------------------------\n\n", test_num, *err_no);
     test_num++;
     free(name_list);
@@ -535,12 +550,14 @@ Will only give warnings.
 int test_remove_files(int *file_id, int *file_size, int *write_ptr, char **file_names, char **write_buf, int num_file, int *err_no){
   int res;
   for(int i = 0; i < num_file && i < ABS_CAP_FD; i++){
-    printf("File Removed %d\n", i);
+    printf("File Removed %s\n", file_names[i]);
     res = sfs_remove(file_names[i]);
     if(res < 0)
       fprintf(stderr, "Warning: sfs_fclose returned negative value. Potential fclose fail?\n");
     file_size[i] = 0;
     write_ptr[i] = 0;
+    free(file_names[i]);
+    file_names[i] = NULL;
   }
   printf("\n-------------------------------\nTest_num[%d]: Current Error Num: %d\n--------------------------------\n\n", test_num, *err_no);
   test_num++;
@@ -616,15 +633,15 @@ int test_open_new_files(char **file_names, int *file_id, int num_file, int *err_
   //We always keep this one close to heart
   file_names[0] = strdup("FINAL_ANSWERS.pdf");
   file_id[0] = sfs_fopen(file_names[0]);
-  printf("File Opened %d\n", 0);
+  printf("File Opened %s\n", file_names[0]);
   if (file_id[0] < 0) {
     fprintf(stderr, "ERROR: Cannot open file %s\n", file_names[0]);
     *err_no += 1;
   }
   //Now do the same for the rest
   for(int i = 1; i < num_file; i++){
-    printf("File Opened %d\n", i);
     file_names[i] = rand_name();
+    printf("File Opened %s\n", file_names[i]);
     file_id[i] = sfs_fopen(file_names[i]);
     if (file_id[i] < 0) {
       fprintf(stderr, "ERROR: Cannot open file %s\n", file_names[i]);
@@ -654,13 +671,13 @@ int test_open_old_files(char **file_names, int *file_id, int num_file, int *err_
     return 0;
   //We don't generate new file names but same as above
   file_id[0] = sfs_fopen(file_names[0]);
-  printf("File Opened %d\n", 0);
+  printf("File Opened %s\n", file_names[0]);
   if (file_id[0] < 0) {
     fprintf(stderr, "ERROR: Cannot open file %s\n", file_names[0]);
     *err_no += 1;
   }
   for(int i = 1; i < num_file; i++){
-    printf("File Opened %d\n", i);
+    printf("File Opened %s\n", file_names[i]);
     file_id[i] = sfs_fopen(file_names[i]);
     if (file_id[i] < 0) {
       fprintf(stderr, "ERROR: Cannot open file %s\n", file_names[i]);

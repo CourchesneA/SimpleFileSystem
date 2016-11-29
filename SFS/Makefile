@@ -9,7 +9,6 @@ EXECUTABLE=sfs
 SOURCES= disk_emu.c sfs_api.c fuse_wrappers.c
 SOURCES_TEST1= disk_emu.c sfs_api.c sfs_test1.c tests.c
 SOURCES_TEST2= disk_emu.c sfs_api.c sfs_test2.c tests.c
-SOURCES_CUSTOM= disk_emu.c sfs_api.c tester.c
 
 all: $(SOURCES)
 	$(CC) $(LDFLAGS) -o $(EXECUTABLE) $(SOURCES)
@@ -22,9 +21,6 @@ test2: $(SOURCES_TEST2)
 
 fuse:  $(SOURCES) $(LDFLAGS) 
 	$(CC) $(LDFLAGS) -o $(EXECUTABLE)$(SOURCES)
-
-custom: $(SOURCES_CUSTOM)
-	$(CC) -o tester $(SOURCES_CUSTOM)
 
 clean:
 	rm $(EXECUTABLE)

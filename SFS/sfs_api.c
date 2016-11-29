@@ -101,11 +101,17 @@ void mksfs(int fresh){
 
 }
 int sfs_get_next_file_name(char *fname){
-	fname = directory[++DIRECTORY_INDEX].filename;
+	//check if there is an entry here
+	if(directory[DIRECTORY_INDEX].inode_index < 1){
+		printf("No more file in directory\n");
+		return 0;
+	}
+	fname = directory[DIRECTORY_INDEX].filename;
+	DIRECTORY_INDEX++;
 	//For now use directory in cache,
 	//but we might want the directory inode to point to other i-nodes
 
-  	return 0;
+  	return 1;
 }
 int sfs_get_file_size(char* path){
 	//get index of the file in the directory
