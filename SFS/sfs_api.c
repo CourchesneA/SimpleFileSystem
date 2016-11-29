@@ -16,8 +16,9 @@ int set_block_used(int blocknum);
 int find_free_block();
 int read_bitmap();
 int write_bitmap(char* bitmap);
-int add_block_to_inode(int blocknum, Inode inode);
+int add_block_to_inode(int blocknum, Inode *inode);
 int file_get_nth_block(int blocknum, Inode inode);
+int write_inode_table();
 
 
 const int BLOCKS_SIZE = 1024;
@@ -35,6 +36,7 @@ int DIRECTORY_INDEX;
 Inode inode_table[NUM_INODES];
 Directory_entry directory[DIRECTORY_LENGTH];
 File_descriptor_entry fd_table[FD_TABLE_LENGTH];
+char bitmap[3125];
 //char bitmap[3125];
 int INT_SIZE;
 
@@ -72,22 +74,21 @@ void mksfs(int fresh){
 		// }
 
 		//Initialize directory with empty strings
-		DIRECTORY_INDEX=0;
+		DIRECTORY_INDEX=0;  //TODO write to first inode
 		int i;
 		for(i=0; i<DIRECTORY_LENGTH; i++){
 			directory[i].filename = "";
 		}
 
 		//write the free bitmap
-		int free_bitmap[3125];	//
 		for(i=0;i<3125;i++){
 			if(i<2){
-				free_bitmap[i]=0xFF;
+				bitmap[i]=0;
 				continue;
 			}
-			free_bitmap[i]=0;			//at the beggining every block is free
+			bitmap[i]=0xFF;			//at the beggining every block is free
 		}
-		if ( write_blocks(FREE_BITMAP_BLK, FREE_BITMAP_LENGTH, free_bitmap) < 0){
+		if ( write_bitmap(bitmap) < 0){
 			printf("Error while initializing free bitmap\n");
 			return;
 		}
@@ -226,7 +227,7 @@ int sfs_fwrite(int fileID, char *buf, int length){
 		printf("Error, could not find file descriptor in open file table \n");
 		return -1;
 	}
-	Inode file_inode = inode_table[fd_table[fileID].inode_index];
+	Inode *file_inode = &inode_table[fd_table[fileID].inode_index];
 	
 
 //New version, doing step-by-step in a loop
@@ -241,9 +242,26 @@ int sfs_fwrite(int fileID, char *buf, int length){
 	int write_loc_offset = fd_table[fileID].wptr % 1024;
 	int last_write_block;	//find which block does this points to
 	
-	if((last_write_block = file_get_nth_block(write_loc,file_inode)) < 0){
+	if((last_write_block = file_get_nth_block(write_loc,*file_inode)) < 0){
 		printf("Error, could not get block number of read pointer\n");
 	}
+
+  //check if we have a block
+  int new_block_num;
+  if(last_write_block <= 0){
+    //no block, assign a new one
+    
+        if((new_block_num = find_free_block()) < 1){
+          printf("Error while looking for new block\n");
+          return bytes_written*(-1);
+        }
+        //Assign in inode_table
+        if(add_block_to_inode(new_block_num, file_inode) < 0){
+          printf("Error while adding new block to inode\n");
+          return bytes_written*(-1);
+        }
+        last_write_block = new_block_num;
+  }
 
 	char rbuf[1024];
 	if(read_blocks(last_write_block, 1, rbuf) < 0){
@@ -262,7 +280,6 @@ int sfs_fwrite(int fileID, char *buf, int length){
 			}
 			//get new block
 				//Create block
-				int new_block_num;
 				if((new_block_num = find_free_block()) < 1){
 					printf("Error while looking for new block\n");
 					return bytes_written*(-1);
@@ -278,9 +295,9 @@ int sfs_fwrite(int fileID, char *buf, int length){
 			memset(rbuf,0,1024);
 		}	//now we know there is space to write a char
 
-		rbuf[index_to_write] = buf[i];	//Add byte to block
+		rbuf[index_to_write++] = buf[i];	//Add byte to block
 		bytes_written++;
-		file_inode.size++;		
+		file_inode->size++;		
 		fd_table[fileID].wptr++;
 		
 	}
@@ -302,79 +319,7 @@ int sfs_fwrite(int fileID, char *buf, int length){
 		return -1;
 	}
 	
-
-
 	return bytes_written;
-
-
-	/*//find how much more block do we need
-	int current_fblocks = file_inode.size/1024;
-	if(file_inode.size%1024 != 0){
-		current_fblocks++;
-	}
-	int new_fblocks = (fd_table[fileID].wptr+length)/1024;
-	if((fd_table[fileID].wptr+length)%1024 != 0){
-		new_fblocks++;
-	}
-	int num_blocks_to_add = new_fblocks - current_fblocks;	// we will decrement this for looping
-
-	//Allocate blocks in the bitmap
-	int new_blocks_numbers[num_blocks_to_add];	//This will hold the numblock of new allocated blocks
-	int i;
-	for(i=0; i<num_blocks_to_add;i++){
-		int blocknum;
-		if((blocknum = find_free_block()) < 0){		//also sets this block as used
-			printf("Error while allocating blocks to file\n");
-			return -1;
-		}
-		new_blocks_numbers[i] = blocknum;
-	}	//now all block allocated has their numbers in 
-
-	//Modify i-Node table in memory
-	i=0;
-	int status;
-	for(i=0; num_blocks_to_add > 0; num_blocks_to_add--, i++){
-		if((status = add_block_to_inode(new_blocks_numbers[i], inode_table[fd_table[fileID].inode_index] )) < 0 ){
-			printf("Error adding blocks to inode\n");
-			return -1;
-		}
-	}	//Now inode table points to these blocks
-
-	int int_in_block = 1024/INT_SIZE;
-	//read block
-	//find which is the last block pointed by wptr
-	int write_loc = fd_table[fileID].wptr / 1024;	//result is something like 5th block
-	int write_loc_offset = fd_table[fileID].wptr % 1024;
-	int last_write_block;	//find which block does this points to
-	if(write_loc > 0 && write_loc < 12){
-		last_write_block = file_inode.ptr[write_loc];
-	}else if( write_loc < int_in_block){	//block pointed by indirect pointer
-		int ind_ptr_block = file_inode.indptr;		//get num of pointers block
-
-		int ind_ptrs[int_in_block];
-		if(read_blocks(ind_ptr_block,1,ind_ptr) < 0){	//Read that block in array
-			printf("Error while reading indirect pointer block\n");
-			return -1;
-		}
-		last_write_block = ind_ptrs[write_loc];
-
-	}else{
-		printf("Error, write pointer points to block %d, which is outside file\n", write_loc);
-		return -1;
-	}
-	char rbuf[512];
-	read_blocks(last_write_block, 1, rbuf);
-	//Append data to this block
-	for(i=write_loc_offset/2; i<512; i++){	//Start at the last char written
-		rbuf[i] = buf[i];
-	}	//Block is now full, go to other blocks
-	//Append data to new blocks
-	int j;
-	for(j=0;)
-	//TODO
-
-	//flush modification to disk
-	//TODO*/
 }
 int sfs_fread(int fileID, char *buf, int length){
 	if (length <= 0){
@@ -398,6 +343,10 @@ int sfs_fread(int fileID, char *buf, int length){
 	int read_buffer[length];
 	memset(read_buffer,0,length*sizeof(int));
 	Inode file_inode = inode_table[fd_table[fileID].inode_index];
+
+  if(file_inode.size == 0){
+    printf("Can't read empty file\n");
+  }
 	
 	//Load last block
 	//find which is the block pointed by rptr
@@ -605,13 +554,13 @@ int set_block_free(int blocknum){	//16 to 24995
 }
 
 int set_block_used(int blocknum){		//we will use 0 for used
-	if(blocknum > 16 || blocknum >= 24995 ){
+	if(blocknum < 16 || blocknum >= 24995 ){
 		printf("Error, block number %d is not a data block\n", blocknum);
 		return -1;
 	}
 	//read the bitmap
-	char bitmap[3125];
-	read_bitmap(bitmap);
+	//char bitmap[3125];   //Already in memory
+	//read_bitmap(bitmap);
 
 	//set the bit
 	int bitmap_index = blocknum / 8;	//find which of the 782 int to change
@@ -635,8 +584,7 @@ int set_block_used(int blocknum){		//we will use 0 for used
 }
 
 int find_free_block(){	//Also set the block as used
-	char bitmap[3125];	//We will use 1 =free
-	read_bitmap(bitmap);
+	//read_bitmap(bitmap);   //Already in cache
 	int i;
 	for(i=2;i<3125;i++){		//Bytes before 2 are used for SB and inodes
 		if(bitmap[i]){		//There is one free block in this char
@@ -644,8 +592,7 @@ int find_free_block(){	//Also set the block as used
 			for(j=0;j<8;j++){
 				if((bitmap[i] >> j) & 1 ){
 					int found_block = 8*i+j;
-					int status;
-					if((status = set_block_used(found_block))<0){
+					if(set_block_used(found_block)<0){
 						printf("Error setting found bit as used\n");
 					}
 					return found_block;		//return the free block number
@@ -659,8 +606,7 @@ int find_free_block(){	//Also set the block as used
 }
 
 int read_bitmap(char *bitmap){
-	int status;
-	if((status=read_blocks(FREE_BITMAP_BLK,FREE_BITMAP_LENGTH, bitmap))<0){
+	if(read_blocks(FREE_BITMAP_BLK,FREE_BITMAP_LENGTH, bitmap)<0){
 		printf("Error while reading bitmap from disk\n");
 		return -1;
 	}
@@ -669,19 +615,18 @@ int read_bitmap(char *bitmap){
 }
 
 int write_bitmap(char* bitmap){
-	int status;
-	if((status=write_blocks(FREE_BITMAP_BLK,FREE_BITMAP_LENGTH, bitmap))<0){
+	if(write_blocks(FREE_BITMAP_BLK,FREE_BITMAP_LENGTH, bitmap)<0){
 		printf("Error while writing bitmap to disk\n");
 		return -1;
 	}
-	return status;
+	return 0;
 }
 
-int add_block_to_inode(int blocknum, Inode inode){
+int add_block_to_inode(int blocknum, Inode *inode){
 	int i;
 	for(i=0; i<12; i++){
-		if(!(inode.ptr[i] > 0)){	//empty ptr, use this one
-			inode.ptr[i] = blocknum;
+		if(!(inode->ptr[i] > 0)){	//empty ptr, use this one
+			inode->ptr[i] = blocknum;
 			return 0;
 		}
 	}
@@ -689,7 +634,7 @@ int add_block_to_inode(int blocknum, Inode inode){
 	int ind_ptr[int_in_block];	
 	memset( ind_ptr, 0, int_in_block*INT_SIZE);	//Init the arrays with zeros
 	int ind_ptr_block;
-	if(!((ind_ptr_block = inode.indptr) > 0)){	//indirect pointer does not exists
+	if(!((ind_ptr_block = inode->indptr) > 0)){	//indirect pointer does not exists
 		//Create the block
 		if((ind_ptr_block = find_free_block()) < 0){
 			printf("Error while looking for free block (new ind ptr)\n");
@@ -698,6 +643,7 @@ int add_block_to_inode(int blocknum, Inode inode){
 		printf("Assigned data block for indirect pointer\n");
 		//add the pointer at the beggining
 		ind_ptr[0] = blocknum;
+    inode->indptr=ind_ptr_block;
 	}else{
 		//read the block
 		if(read_blocks(ind_ptr_block,1,ind_ptr) < 0){
@@ -723,13 +669,17 @@ int add_block_to_inode(int blocknum, Inode inode){
 			printf("Error while writing indirect pointer to block\n");
 			return -1;
 	}
+  if(write_inode_table() < 0){
+    printf("Error writing inode table\n");
+    return -1;
+  }
 	return 0;
 }
 
 int file_get_nth_block(int blocknum, Inode inode){
 	int int_in_block = 1024/INT_SIZE;
 	int block_index;
-	if(blocknum > 0 && blocknum < 12){
+	if(blocknum >= 0 && blocknum < 12){
 		block_index = inode.ptr[blocknum];
 	}else if( blocknum < int_in_block+12){	//block pointed by indirect pointer
 		int ind_ptr_block = inode.indptr;		//get num of pointers block
@@ -746,4 +696,12 @@ int file_get_nth_block(int blocknum, Inode inode){
 		return -1;
 	}
 	return block_index;
+}
+
+int write_inode_table(){
+  if(write_blocks(INODE_TABLE_BLK,INODE_TABLE_LENGHT, inode_table)<0){
+    printf("Error while writing inode table to disk\n");
+    return -1;
+  }
+  return 0;
 }
