@@ -75,12 +75,14 @@ void mksfs(int fresh){
 
 		//Initialize directory with empty strings
 		DIRECTORY_INDEX=0;  //TODO write to first inode
-		int i;
+    memset(directory,0,sizeof(Directory_entry)*DIRECTORY_LENGTH);
+		/*int i;
 		for(i=0; i<DIRECTORY_LENGTH; i++){
 			directory[i].filename = "";
-		}
+		}*/
 
 		//write the free bitmap
+    int i;
 		for(i=0;i<3125;i++){
 			if(i<2){
 				bitmap[i]=0;
@@ -111,11 +113,14 @@ void mksfs(int fresh){
 int sfs_get_next_file_name(char *fname){
 	//check if there is an entry here
 	if(directory[DIRECTORY_INDEX].inode_index < 1){
-		printf("No more file in directory\n");
-		return 0;
-	}
-	fname = directory[DIRECTORY_INDEX].filename;
-	DIRECTORY_INDEX++;
+    printf("No more file in directory\n");
+    DIRECTORY_INDEX = 0;
+    return 0;
+  }
+
+	char *name = directory[DIRECTORY_INDEX++].filename;
+	strcpy(fname, name);
+  
 	//For now use directory in cache,
 	//but we might want the directory inode to point to other i-nodes
 
@@ -526,7 +531,7 @@ int sfs_find_in_directory(char *name){
 	//Find a file in the directory and return its index
 	int i;
 	for(i=0;i<DIRECTORY_LENGTH;i++){
-    if(directory[i].inode_index <= 1){
+    if(directory[i].inode_index < 1){
       continue;
     }
 		if(strcmp(directory[i].filename, name)==0){
