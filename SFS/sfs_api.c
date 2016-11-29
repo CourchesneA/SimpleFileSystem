@@ -15,7 +15,7 @@ int set_block_free(int blocknum);
 int set_block_used(int blocknum);
 int find_free_block();
 int read_bitmap();
-int write_bitmap(char* bitmap);
+int write_bitmap(unsigned char* bitmap);
 int add_block_to_inode(int blocknum, Inode *inode);
 int file_get_nth_block(int blocknum, Inode inode);
 int write_inode_table();
@@ -36,7 +36,7 @@ int DIRECTORY_INDEX;
 Inode inode_table[NUM_INODES];
 Directory_entry directory[DIRECTORY_LENGTH];
 File_descriptor_entry fd_table[FD_TABLE_LENGTH];
-char bitmap[3125];
+unsigned char bitmap[3125];
 //char bitmap[3125];
 int INT_SIZE;
 
@@ -153,7 +153,7 @@ int sfs_fopen(char *name){	//Second
 		printf("Created file with inode_index: %i\n", file_index);
 	}else{
 		file_index = directory[dir_index].inode_index;
-		printf("Retreived file %s as inode number %d", name, file_index);
+		printf("Retreived file %s as inode number %d\n", name, file_index);
 	}
 
 	//Now we have the inode index which is not -1
@@ -415,12 +415,12 @@ int sfs_remove(char *file){
 	int inode_num = directory[file_index].inode_index;
 	//directory[file_index] = {.filename = ""};	//clear the entry
 	memset(&directory[file_index], 0, sizeof(Directory_entry));
-	Inode inode = inode_table[inode_num];
+	Inode *inode = &inode_table[inode_num];
 	//free blocks
 	int i;
 	for(i=0;i<12;i++){	//clear block from direct pointers
 		int ptr_value;
-		if((ptr_value =inode.ptr[i]) > 0){
+		if((ptr_value =inode->ptr[i]) > 0){
 			if(set_block_free(ptr_value) < 0){
 				printf("Error trying to free block to remove file\n");
 				return -1;
@@ -428,21 +428,24 @@ int sfs_remove(char *file){
 		}
 	}
 	//load indirect pointers block
-	int ind_ptr_index = inode.indptr;
-	int ind_ptr_block[1024/INT_SIZE];
-	if(read_blocks(ind_ptr_index,1,ind_ptr_block) <0 ){
-		printf("Error reading indirect pointer block\n");
-		return -1;
-	}
-	for(i = 0; i< 1024/INT_SIZE; i++){
-		int ptr_value;
-		if((ptr_value = ind_ptr_block[i]) > 0){
-			if(set_block_free(ptr_value) < 0){
-				printf("Error trying to free block to remove file (indirect ptr)\n");
-				return -1;
-			}
-		}
-	}
+	int ind_ptr_index = inode->indptr;
+  if(ind_ptr_index > 0){    //check if there is an indirect table
+      int ind_ptr_block[1024/INT_SIZE];
+    if(read_blocks(ind_ptr_index,1,ind_ptr_block) <0 ){
+      printf("Error reading indirect pointer block\n");
+      return -1;
+    }
+    for(i = 0; i< 1024/INT_SIZE; i++){
+      int ptr_value;
+      if((ptr_value = ind_ptr_block[i]) > 0){
+        if(set_block_free(ptr_value) < 0){
+          printf("Error trying to free block to remove file (indirect ptr)\n");
+          return -1;
+        }
+      }
+    }
+  }
+	
 	//remove inode
 	//inode_table[inode_num] = {};
 	memset(&inode_table[inode_num],0,sizeof(Inode));
@@ -470,7 +473,7 @@ int sfs_fcreate(char *name){	//create file and return its inode_index
 		return -1;
 	}
 	//Populate directory entry
-	Directory_entry new_dir_entry = {.filename = name, .inode_index = new_dir_index};
+	Directory_entry new_dir_entry = {.filename = name, .inode_index = new_inode_index};
 	directory[new_dir_index] = new_dir_entry;
 	//Here we could modify the directory inode if there was anything to do with it
 
@@ -523,6 +526,9 @@ int sfs_find_in_directory(char *name){
 	//Find a file in the directory and return its index
 	int i;
 	for(i=0;i<DIRECTORY_LENGTH;i++){
+    if(directory[i].inode_index <= 1){
+      continue;
+    }
 		if(strcmp(directory[i].filename, name)==0){
 			return i;
 		}
@@ -532,25 +538,25 @@ int sfs_find_in_directory(char *name){
 }
 
 int set_block_free(int blocknum){	//16 to 24995
-	if(blocknum > 16 || blocknum >= 24995 ){
+	if(blocknum < 16 || blocknum >= 24995 ){
 		printf("Error, block number %d is not a data block\n", blocknum);
 		return -1;
 	}
 	//read the bitmap
-	char bitmap[3125];
-	read_bitmap(bitmap);
+	//char bitmap[3125]; //bitmap already in cache
+	//read_bitmap(bitmap);
 
 	//set the bit
-	int bitmap_index = blocknum / 8;	//find which of the 782 int to change
-	char bit_number = blocknum % 8;		//find which bit
-	char bit_value = 1 << bit_number;	//value of this bit
+	int bitmap_index = blocknum / 8;	//find which of the 3125 bytes to change
+	unsigned char bit_number = blocknum % 8;		//find which bit
+	unsigned char bit_value = 1 << bit_number;	//value of this bit
 	//check current value
-	char char_value	= bitmap[bitmap_index];
+	unsigned char char_value	= bitmap[bitmap_index];
 	if(((char_value >> bit_number) & 1)){	//if the bit is free
 		printf("Error ,trying to free a block already free\n");
 		return -1;
 	}
-	char new_char_value = char_value | bit_value;	// set the bit
+	unsigned char new_char_value = char_value | bit_value;	// set the bit TODO
 	bitmap[bitmap_index] = new_char_value;
 
 	//write the bitmap
@@ -558,7 +564,7 @@ int set_block_free(int blocknum){	//16 to 24995
 	if((status = write_bitmap(bitmap))<0){
 		return -1;
 	}
-	return 1;
+	return 0;
 }
 
 int set_block_used(int blocknum){		//we will use 0 for used
@@ -571,16 +577,16 @@ int set_block_used(int blocknum){		//we will use 0 for used
 	//read_bitmap(bitmap);
 
 	//set the bit
-	int bitmap_index = blocknum / 8;	//find which of the 782 int to change
-	char bit_number = blocknum % 8;		//find which bit
-	char bit_value = 1 << bit_number;	//value of this bit
+	int bitmap_index = blocknum / 8;	//find which of the 3125 bytes to change
+	unsigned char bit_number = blocknum % 8;		//find which bit
+	unsigned char bit_value = 1 << bit_number;	//value of this bit
 	//check current value
-	char char_value	= bitmap[bitmap_index];
+	unsigned char char_value	= bitmap[bitmap_index];
 	if(!((char_value >> bit_number) & 1)){	//if the bits where the same then true
 		printf("Error ,trying to use an occupied block\n");
 		return -1;
 	}
-	char new_char_value = char_value | bit_value;	// clear the bit
+	unsigned char new_char_value = char_value - bit_value;	// clear the bit
 	bitmap[bitmap_index] = new_char_value;
 
 	//write the bitmap
@@ -588,7 +594,7 @@ int set_block_used(int blocknum){		//we will use 0 for used
 	if((status = write_bitmap(bitmap))<0){
 		return -1;
 	}
-	return 1;
+	return 0;
 }
 
 int find_free_block(){	//Also set the block as used
@@ -613,7 +619,7 @@ int find_free_block(){	//Also set the block as used
 	return -1;
 }
 
-int read_bitmap(char *bitmap){
+int read_bitmap(unsigned char *bitmap){
 	if(read_blocks(FREE_BITMAP_BLK,FREE_BITMAP_LENGTH, bitmap)<0){
 		printf("Error while reading bitmap from disk\n");
 		return -1;
@@ -622,7 +628,7 @@ int read_bitmap(char *bitmap){
 
 }
 
-int write_bitmap(char* bitmap){
+int write_bitmap(unsigned char *bitmap){
 	if(write_blocks(FREE_BITMAP_BLK,FREE_BITMAP_LENGTH, bitmap)<0){
 		printf("Error while writing bitmap to disk\n");
 		return -1;
@@ -649,6 +655,8 @@ int add_block_to_inode(int blocknum, Inode *inode){
 			return -1;
 		}
 		printf("Assigned data block for indirect pointer\n");
+    //initialize the indirect pointer array
+    memset(ind_ptr,0,sizeof(int)*int_in_block);
 		//add the pointer at the beggining
 		ind_ptr[0] = blocknum;
     inode->indptr=ind_ptr_block;
