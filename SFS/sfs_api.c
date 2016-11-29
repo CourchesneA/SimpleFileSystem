@@ -191,7 +191,11 @@ int sfs_fclose(int fileID){	//Find fd and remove it
   	return 0;
 }
 int sfs_frseek(int fileID, int loc){	//Change the rptr location
-	if(fileID < 0 || loc < 0){
+  if(loc < 0 || loc > inode_table[fd_table[fileID].inode_index].size){
+    printf("Invalid rptr location\n");
+    return -1;
+  }
+	if(fileID < 0){
 		printf("Invalid file descriptor (rptr)\n");
 		return -1;
 	}
@@ -205,8 +209,12 @@ int sfs_frseek(int fileID, int loc){	//Change the rptr location
   	return 0;
 }
 int sfs_fwseek(int fileID, int loc){	//Change the wptr location
-	if(fileID < 0 || loc < 0){
-		printf("Invalid file descriptor (rptr)\n");
+  if(loc < 0 || loc > inode_table[fd_table[fileID].inode_index].size){
+    printf("Invalid wptr location\n");
+    return -1;
+  }
+	if(fileID < 0){
+		printf("Invalid file descriptor (wptr)\n");
 		return -1;
 	}
 	//TODO add conditions
@@ -340,8 +348,8 @@ int sfs_fread(int fileID, char *buf, int length){
 	int index_to_read;
 	int current_block_num;
 	//int int_in_block = 1024/INT_SIZE;
-	int read_buffer[length];
-	memset(read_buffer,0,length*sizeof(int));
+	char read_buffer[length];
+	memset(read_buffer,0,length*sizeof(char));
 	Inode file_inode = inode_table[fd_table[fileID].inode_index];
 
   if(file_inode.size == 0){
@@ -369,7 +377,7 @@ int sfs_fread(int fileID, char *buf, int length){
 		if(fd_table[fileID].rptr > file_inode.size){
 			printf("Error, read pointer is out of file\n");
 			memcpy(buf,read_buffer, length);
-  			return bytes_read*-1;
+  		return bytes_read*-1;
 		}
 		if(index_to_read >= 1024){	//reached end of block
 			//fetch next block
@@ -481,12 +489,12 @@ int sfs_fcreate(char *name){	//create file and return its inode_index
 
 int sfs_find_empty_inode(){
 	int i;
-	for(i=0; i<INODE_TABLE_LENGHT; i++){
+	for(i=0; i<NUM_INODES; i++){
 		if(inode_table[i].mode == 0){
 			return i;
 		}
 	}
-	printf("Error, all %i entries in inode table are taken\n",INODE_TABLE_LENGHT);
+	printf("Error, all %i entries in inode table are taken\n",NUM_INODES);
 	return -1;
 }
 int sfs_find_empty_dir_entry(){	//return empty entry index or -1 if not found
