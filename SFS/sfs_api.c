@@ -30,6 +30,7 @@ const int FD_TABLE_LENGTH = 20;		//Max entry in file descriptor table
 const int INODE_TABLE_BLK = 1;
 int FREE_BITMAP_LENGTH = 4;			// 25000 block / (1024 byte * 8bits)
 int FREE_BITMAP_BLK = NUM_BLOCKS-5;
+int DIRECTORY_INDEX;
 //In-memory structures;
 Inode inode_table[NUM_INODES];
 Directory_entry directory[DIRECTORY_LENGTH];
@@ -71,6 +72,7 @@ void mksfs(int fresh){
 		// }
 
 		//Initialize directory with empty strings
+		DIRECTORY_INDEX=0;
 		int i;
 		for(i=0; i<DIRECTORY_LENGTH; i++){
 			directory[i].filename = "";
@@ -99,6 +101,10 @@ void mksfs(int fresh){
 
 }
 int sfs_get_next_file_name(char *fname){
+	fname = directory[++DIRECTORY_INDEX].filename;
+	//For now use directory in cache,
+	//but we might want the directory inode to point to other i-nodes
+
   	return 0;
 }
 int sfs_get_file_size(char* path){
