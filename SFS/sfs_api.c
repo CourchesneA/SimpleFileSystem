@@ -62,8 +62,8 @@ void mksfs(int fresh){
 		//write the first Inode
 		//Lets say we can have 200 inodes
 		Inode root_inode = {.mode=1};	//Every other value in the inode are 0. We use mode to say that the inode is used
-		printf("Size of inode is: %lu\n", sizeof(root_inode));
-		printf("Size of inode Table is: %lu\n", sizeof(inode_table));
+		//printf("Size of inode is: %lu\n", sizeof(root_inode));
+		//printf("Size of inode Table is: %lu\n", sizeof(inode_table));
 		inode_table[ROOT_DIRECTORY]=root_inode;
 		//Code disable, not writting to disk for now
 		// if ( write_blocks(INODE_TABLE_BLK, 1, &root_inode) < 0){		//Second block block, 1 block (3 for the whole table)
@@ -87,7 +87,7 @@ void mksfs(int fresh){
 			}
 			free_bitmap[i]=0;			//at the beggining every block is free
 		}
-		if ( write_blocks(FREE_BITMAP_BLK, 1, free_bitmap) < 0){		//Last block, 1 block
+		if ( write_blocks(FREE_BITMAP_BLK, FREE_BITMAP_LENGTH, free_bitmap) < 0){
 			printf("Error while initializing free bitmap\n");
 			return;
 		}
@@ -97,6 +97,13 @@ void mksfs(int fresh){
 			printf("Error while opening virtual disk\n");
 			return;
 		}
+		//read super block
+
+		//read inode table
+
+		//read bitmap
+
+		//read directory
 	}
 
 }
@@ -169,7 +176,11 @@ int sfs_fopen(char *name){	//Second
   	return fd_index;
 }
 int sfs_fclose(int fileID){	//Find fd and remove it
-	if(!(fd_table[fileID].inode_index > 0 && fd_table[fileID].inode_index < NUM_INODES)){
+	if(fileID < 0){
+		printf("Invalid file descriptor\n");
+		return -1;
+	}
+	if(!(fd_table[fileID].inode_index > 0 && fd_table[fileID].inode_index < NUM_INODES)) {
 		printf("Invalid file descriptor\n");
 		return -1;
 	}
@@ -179,6 +190,10 @@ int sfs_fclose(int fileID){	//Find fd and remove it
   	return 0;
 }
 int sfs_frseek(int fileID, int loc){	//Change the rptr location
+	if(fileID < 0 || loc < 0){
+		printf("Invalid file descriptor (rptr)\n");
+		return -1;
+	}
 	//TODO add conditions
 	if(!(fd_table[fileID].inode_index > 0 && fd_table[fileID].inode_index < NUM_INODES)){
 		printf("Invalid file descriptor (rptr)\n");
@@ -189,6 +204,10 @@ int sfs_frseek(int fileID, int loc){	//Change the rptr location
   	return 0;
 }
 int sfs_fwseek(int fileID, int loc){	//Change the wptr location
+	if(fileID < 0 || loc < 0){
+		printf("Invalid file descriptor (rptr)\n");
+		return -1;
+	}
 	//TODO add conditions
 	if(!(fd_table[fileID].inode_index > 0 && fd_table[fileID].inode_index < NUM_INODES)){
 		printf("Invalid file descriptor (wptr)\n");
@@ -199,6 +218,10 @@ int sfs_fwseek(int fileID, int loc){	//Change the wptr location
   	return 0;
 }
 int sfs_fwrite(int fileID, char *buf, int length){
+	if(fileID < 0 || length < 0){
+		printf("Invalid file descriptor\n");
+		return -1;
+	}
 	if(fd_table[fileID].inode_index < 1){
 		printf("Error, could not find file descriptor in open file table \n");
 		return -1;
@@ -270,7 +293,7 @@ int sfs_fwrite(int fileID, char *buf, int length){
 
 	//flush inode
 	//We never have to re-read inode table since its always modified in memory as well, so its in sync
-	if(sizeof(inode_table) > INODE_TABLE_LENGHT){
+	if(sizeof(inode_table)/1024 > INODE_TABLE_LENGHT){
 		printf("Unexpected error, inode table is more than 20 blocks\n");
 		return -1;
 	}
@@ -354,7 +377,18 @@ int sfs_fwrite(int fileID, char *buf, int length){
 	//TODO*/
 }
 int sfs_fread(int fileID, char *buf, int length){
-	//TODO check file not opened
+	if (length <= 0){
+		printf("invalid length\n");
+		return -1;
+	}
+	if(fileID < 0){
+		printf("Invalid file descriptor\n");
+		return -1;
+	}
+	if(!(fd_table[fileID].inode_index > 0 && fd_table[fileID].inode_index < NUM_INODES)) {
+		printf("Invalid file descriptor\n");
+		return -1;
+	}
 
 	int i;
 	int bytes_read = 0;
@@ -484,7 +518,7 @@ int sfs_fcreate(char *name){	//create file and return its inode_index
 	//Here we could modify the directory inode if there was anything to do with it
 
 	//Save inode table to disk
-	if(sizeof(inode_table) > INODE_TABLE_LENGHT){
+	if(sizeof(inode_table)/1024 > INODE_TABLE_LENGHT){
 		printf("Unexpected error, inode table is more than 20 blocks\n");
 		return -1;
 	}
