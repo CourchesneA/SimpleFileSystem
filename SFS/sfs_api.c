@@ -18,7 +18,13 @@ int read_bitmap();
 int write_bitmap(unsigned char* bitmap);
 int add_block_to_inode(int blocknum, Inode *inode);
 int file_get_nth_block(int blocknum, Inode inode);
-int write_inode_table();
+int write_inode_table(Inode *i_table);
+int read_inode_table(Inode *i_table);
+int write_directory(Directory_entry *dir);
+int read_directory(Directory_entry *dir);
+int write_super_block(int *s_block);
+int read_super_block(int *sblock);
+
 
 
 const int BLOCKS_SIZE = 1024;
@@ -27,15 +33,19 @@ const int INODE_TABLE_LENGHT = 15;	//Each inode is 72 bytes, so 15 blocks for 20
 const int ROOT_DIRECTORY = 0;		//Inode index of the root directory
 const int NUM_INODES = 200;			//Limitting to the size of the inode table
 const int DIRECTORY_LENGTH = 200;	//Number of max file in a directory mapping
+const int DIRECTORY_BLOCKS = 5;
 const int FD_TABLE_LENGTH = 20;		//Max entry in file descriptor table
 const int INODE_TABLE_BLK = 1;
-int FREE_BITMAP_LENGTH = 4;			// 25000 block / (1024 byte * 8bits)
-int FREE_BITMAP_BLK = NUM_BLOCKS-5;
+const int FREE_BITMAP_LENGTH = 5;			// 25000 block / (1024 byte * 8bits)
+const int FREE_BITMAP_BLK = NUM_BLOCKS-FREE_BITMAP_LENGTH-1;  //-1 ?
+int DIRECTORY_BLK_INDEX = FREE_BITMAP_BLK - DIRECTORY_BLOCKS;
 int DIRECTORY_INDEX;
 //In-memory structures;
 Inode inode_table[NUM_INODES];
 Directory_entry directory[DIRECTORY_LENGTH];
 File_descriptor_entry fd_table[FD_TABLE_LENGTH];
+int super_block[256];
+//int super_block[5];
 unsigned char bitmap[3125];
 //char bitmap[3125];
 int INT_SIZE;
@@ -46,52 +56,62 @@ void mksfs(int fresh){
 	INT_SIZE = sizeof(int);
 
 	if(fresh){
+    //Init the disk
 		if(init_fresh_disk(filename, BLOCKS_SIZE, NUM_BLOCKS)<0){
 			printf("Error while creating virtual disk\n");
 			return;
 		}
-		//Write the super block
-		int super_block[5];
+
+		//Initialize super block
+    
 		super_block[0] = 0;			//Magic, not used
 		super_block[1] = BLOCKS_SIZE;		//Block size
 		super_block[2] = NUM_BLOCKS;		//Number of blocks
 		super_block[3] = INODE_TABLE_LENGHT;	//Lenght of inode table
 		super_block[4] = ROOT_DIRECTORY;		//inode nb of the root directory
-		if ( write_blocks(0, 1, super_block) < 0){		//First block, 1 block
-			printf("Error while initializing super block\n");
+    //Write the super block
+		if ( write_super_block(super_block) < 0){		//First block, 1 block
+			printf("Error while wrinting super block to disk\n");
 			return;
 		}
-		//write the first Inode
-		//Lets say we can have 200 inodes
-		Inode root_inode = {.mode=1};	//Every other value in the inode are 0. We use mode to say that the inode is used
-		//printf("Size of inode is: %lu\n", sizeof(root_inode));
-		//printf("Size of inode Table is: %lu\n", sizeof(inode_table));
-		inode_table[ROOT_DIRECTORY]=root_inode;
-		//Code disable, not writting to disk for now
-		// if ( write_blocks(INODE_TABLE_BLK, 1, &root_inode) < 0){		//Second block block, 1 block (3 for the whole table)
-		// 	printf("Error while initializing Directory Inode\n");
-		// 	return;
-		// }
 
-		//Initialize directory with empty strings
-		DIRECTORY_INDEX=0;  //TODO write to first inode
+    //Initialize directory
+    DIRECTORY_INDEX=0;      //This is the index used for get_next_file();
     memset(directory,0,sizeof(Directory_entry)*DIRECTORY_LENGTH);
-		/*int i;
-		for(i=0; i<DIRECTORY_LENGTH; i++){
-			directory[i].filename = "";
-		}*/
+    //Write the directory to disk
+    if ( write_directory(directory) < 0){    //First block, 1 block
+      printf("Error while writing directory to disk\n");
+      return;
+    }
 
-		//write the free bitmap
-    int i;
+    //initialize inode table
+    memset(inode_table, 0, NUM_INODES* sizeof(Inode));
+		//initialize the first Inode for root directory
+		Inode root_inode = {.mode=1};	//Every other value in the inode are 0. We use mode to say that the inode is used
+		inode_table[ROOT_DIRECTORY]=root_inode;
+    //write the inode table
+    if ( write_inode_table(inode_table)){   //Second block block, 1 block (3 for the whole table)
+      printf("Error while writing inode_table to disk\n");
+      return;
+    }
+
+
+    //initialize the bitmap
+    memset(bitmap,1,3125);
+    bitmap[0]=0;    //Contains Super block and inode table, not free
+    bitmap[1]=0;    //Contains inode table
+    bitmap[3124]=0; //Contains directory
+    /*int i;
 		for(i=0;i<3125;i++){
 			if(i<2){
 				bitmap[i]=0;
 				continue;
 			}
 			bitmap[i]=0xFF;			//at the beggining every block is free
-		}
+		}*/
+    //Write bitmap to disk
 		if ( write_bitmap(bitmap) < 0){
-			printf("Error while initializing free bitmap\n");
+			printf("Error while writing bitmap to disk\n");
 			return;
 		}
 
@@ -101,12 +121,28 @@ void mksfs(int fresh){
 			return;
 		}
 		//read super block
-
+    if ( read_super_block(super_block) < 0){    //First block, 1 block
+      printf("Error while reading super block\n");
+      return;
+    }
+    
 		//read inode table
+    if( read_inode_table(inode_table) < 0){
+      printf("Error while reading inode table from disk\n");
+      return;
+    }
 
 		//read bitmap
+    if ( read_bitmap(bitmap) < 0){
+      printf("Error while reading bitmap from disk\n");
+      return;
+    }
 
 		//read directory
+    if ( read_directory(directory) < 0){    //First block, 1 block
+      printf("Error reading directory from disk\n");
+      return;
+    }
 	}
 
 }
@@ -120,11 +156,7 @@ int sfs_get_next_file_name(char *fname){
 
 	char *name = directory[DIRECTORY_INDEX++].filename;
 	strcpy(fname, name);
-  
-	//For now use directory in cache,
-	//but we might want the directory inode to point to other i-nodes
-
-  	return 1;
+  return 1;
 }
 int sfs_get_file_size(char* path){
 	//get index of the file in the directory
@@ -140,16 +172,17 @@ int sfs_get_file_size(char* path){
 		return -1;
 	}
 	int filesize = inode_table[inode_nb].size;
-	printf("File %s have size %d",path, filesize);
+	printf("File %s have size %d\n",path, filesize);
   	return filesize;
 }
-int sfs_fopen(char *name){	//Second
+int sfs_fopen(char *name){
+
 	//Open or create file and return fd
 	//1. Find its entry in directory or create the file
 	int dir_index = sfs_find_in_directory(name);
 	int file_index;
 	if(dir_index == -1){	//File not found
-		printf("Could not find file: %s in directory, creating file\n", name);
+		printf("Creating file %s\n", name);
 		//TODO check namelength
 		if((file_index = sfs_fcreate(name)) == -1 ){	//Get file inode num
 			printf("Error creating file\n");
@@ -231,6 +264,7 @@ int sfs_fwseek(int fileID, int loc){	//Change the wptr location
 	printf("Successfully moved write ptr to %d\n", loc);
   	return 0;
 }
+
 int sfs_fwrite(int fileID, char *buf, int length){
 	if(fileID < 0 || length < 0){
 		printf("Invalid file descriptor\n");
@@ -242,7 +276,6 @@ int sfs_fwrite(int fileID, char *buf, int length){
 	}
 	Inode *file_inode = &inode_table[fd_table[fileID].inode_index];
 	
-
 //New version, doing step-by-step in a loop
 	int i;
 	int bytes_written = 0;
@@ -459,7 +492,14 @@ int sfs_remove(char *file){
 }
 
 //-----------------Helpers----------------------
+
 int sfs_fcreate(char *name){	//create file and return its inode_index
+  //Check name length
+  if(strlen(name) > 20){
+    printf("Too many characters in string, maximum is %d\n",20);
+    return -1;
+  }
+
 	//create an inode
 	//find empty inode
 	int new_inode_index=-1;
@@ -478,7 +518,8 @@ int sfs_fcreate(char *name){	//create file and return its inode_index
 		return -1;
 	}
 	//Populate directory entry
-	Directory_entry new_dir_entry = {.filename = name, .inode_index = new_inode_index};
+	Directory_entry new_dir_entry = { .inode_index = new_inode_index};
+  strcpy(new_dir_entry.filename, name);
 	directory[new_dir_index] = new_dir_entry;
 	//Here we could modify the directory inode if there was anything to do with it
 
@@ -624,23 +665,6 @@ int find_free_block(){	//Also set the block as used
 	return -1;
 }
 
-int read_bitmap(unsigned char *bitmap){
-	if(read_blocks(FREE_BITMAP_BLK,FREE_BITMAP_LENGTH, bitmap)<0){
-		printf("Error while reading bitmap from disk\n");
-		return -1;
-	}
-	return 0;
-
-}
-
-int write_bitmap(unsigned char *bitmap){
-	if(write_blocks(FREE_BITMAP_BLK,FREE_BITMAP_LENGTH, bitmap)<0){
-		printf("Error while writing bitmap to disk\n");
-		return -1;
-	}
-	return 0;
-}
-
 int add_block_to_inode(int blocknum, Inode *inode){
 	int i;
 	for(i=0; i<12; i++){
@@ -690,7 +714,7 @@ int add_block_to_inode(int blocknum, Inode *inode){
 			printf("Error while writing indirect pointer to block\n");
 			return -1;
 	}
-  if(write_inode_table() < 0){
+  if(write_inode_table(inode_table) < 0){
     printf("Error writing inode table\n");
     return -1;
   }
@@ -719,9 +743,65 @@ int file_get_nth_block(int blocknum, Inode inode){
 	return block_index;
 }
 
-int write_inode_table(){
-  if(write_blocks(INODE_TABLE_BLK,INODE_TABLE_LENGHT, inode_table)<0){
+int write_bitmap(unsigned char *bitmap){
+  if(write_blocks(FREE_BITMAP_BLK,FREE_BITMAP_LENGTH, bitmap)<0){
+    printf("Error while writing bitmap to disk\n");
+    return -1;
+  }
+  return 0;
+}
+
+int read_bitmap(unsigned char *bitmap){
+  if(read_blocks(FREE_BITMAP_BLK,FREE_BITMAP_LENGTH, bitmap)<0){
+    printf("Error while reading bitmap from disk\n");
+    return -1;
+  }
+  return 0;
+}
+
+int write_inode_table(Inode *i_table){
+  if(write_blocks(INODE_TABLE_BLK,INODE_TABLE_LENGHT, i_table)<0){
     printf("Error while writing inode table to disk\n");
+    return -1;
+  }
+  return 0;
+}
+
+int read_inode_table(Inode *i_table){
+  if(read_blocks(INODE_TABLE_BLK,INODE_TABLE_LENGHT, i_table)<0){
+    printf("Error while reading inode table from disk\n");
+    return -1;
+  }
+  return 0;
+}
+
+int write_directory(Directory_entry *dir){  //Handle type conversion
+  if(write_blocks(DIRECTORY_BLK_INDEX,DIRECTORY_BLOCKS, dir)<0){
+    printf("Error while writing directory to disk\n");
+    return -1;
+  }
+  return 0;
+}
+
+int read_directory(Directory_entry *dir){   //handle type conversion
+  if(read_blocks(DIRECTORY_BLK_INDEX,DIRECTORY_BLOCKS, dir)<0){
+    printf("Error while reading directory from disk\n");
+    return -1;
+  }
+  return 0;
+}
+
+int write_super_block(int *s_block){  //Handle type conversion
+  if(write_blocks(0,1, s_block)<0){
+    printf("Error while writing directory to disk\n");
+    return -1;
+  }
+  return 0;
+}
+
+int read_super_block(int *s_block){   //handle type conversion
+  if(read_blocks(0,1, s_block)<0){
+    printf("Error while reading directory from disk\n");
     return -1;
   }
   return 0;

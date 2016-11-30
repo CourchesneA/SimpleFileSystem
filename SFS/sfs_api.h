@@ -12,7 +12,7 @@ typedef struct Inode {
 } Inode;
 
 typedef struct Directory_entry {
-	char *filename;
+	char filename[21];
 	int inode_index;
 } Directory_entry;
 
