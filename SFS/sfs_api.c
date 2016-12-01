@@ -28,6 +28,7 @@ int sfs_find_in_fd_table(int i_index);
 
 
 
+
 const int BLOCKS_SIZE = 1024;
 const int NUM_BLOCKS = 25000;
 const int INODE_TABLE_LENGHT = 15;	//Each inode is 72 bytes, so 15 blocks for 200 inodes
@@ -45,7 +46,9 @@ int DIRECTORY_INDEX;
 Inode inode_table[NUM_INODES];
 Directory_entry directory[DIRECTORY_LENGTH];
 File_descriptor_entry fd_table[FD_TABLE_LENGTH];
+
 int super_block[256]; //Lot of empty space so no segfault on memcpy for a block
+
 //int super_block[5];
 unsigned char bitmap[3125];
 //char bitmap[3125];
@@ -98,7 +101,9 @@ void mksfs(int fresh){
 
 
     //initialize the bitmap
+
     memset(bitmap,0xFF,3125);
+
     bitmap[0]=0;    //Contains Super block and inode table, not free
     bitmap[1]=0;    //Contains inode table
     bitmap[3124]=0; //Contains directory
@@ -184,6 +189,7 @@ int sfs_fopen(char *name){
     printf("Error while looking for free file descriptor\n");
     return -1;
   }
+
 	//Open or create file and return fd
 	//1. Find its entry in directory or create the file
 	int dir_index = sfs_find_in_directory(name);
@@ -277,7 +283,9 @@ int sfs_fwrite(int fileID, char *buf, int length){
 	}
 	Inode *file_inode = &inode_table[fd_table[fileID].inode_index];
 	
+
   //New version, doing step-by-step in a loop
+
 	int i;
 	int bytes_written = 0;
 	int index_to_write;
@@ -538,6 +546,7 @@ int sfs_fcreate(char *name){	//create file and return its inode_index
     printf("Too many characters in string, maximum is %d\n",20);
     return -1;
   }
+
   //Add file to directory
   //find empty directory entry
   int new_dir_index=-1;
@@ -545,6 +554,7 @@ int sfs_fcreate(char *name){	//create file and return its inode_index
     printf("Error while looking for free directory entry\n");
     return -1;
   }
+
 	//create an inode
 	//find empty inode
 	int new_inode_index=-1;
