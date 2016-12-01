@@ -52,7 +52,7 @@ unsigned char bitmap[3125];
 int INT_SIZE;
 
 void mksfs(int fresh){
-//Format the given virtual disk and creates a SFS on top of it. fresh = create, else opened
+  //Format the given virtual disk and creates a SFS on top of it. fresh = create, else opened
 	char *filename = "cVirtualDisk";		//Name of the virtual disk file
 	INT_SIZE = sizeof(int);
 
@@ -98,7 +98,7 @@ void mksfs(int fresh){
 
 
     //initialize the bitmap
-    memset(bitmap,1,3125);
+    memset(bitmap,0xFF,3125);
     bitmap[0]=0;    //Contains Super block and inode table, not free
     bitmap[1]=0;    //Contains inode table
     bitmap[3124]=0; //Contains directory
@@ -284,7 +284,7 @@ int sfs_fwrite(int fileID, char *buf, int length){
 	int current_block_num;
 	
 	//Load last block
-	//find which is the last block pointed by wptr
+	//find which is the last block pointed by wprtHERE debugg
 	int write_loc = fd_table[fileID].wptr / 1024;	//result is something like 5th block
 	int write_loc_offset = fd_table[fileID].wptr % 1024;
 	int last_write_block;	//find which block does this points to
@@ -314,7 +314,9 @@ int sfs_fwrite(int fileID, char *buf, int length){
 	if(read_blocks(last_write_block, 1, rbuf) < 0){
 		printf("Error, could not read data block pointed by write pointer\n");
 		return -1;
-	}
+	}else if(write_loc_offset != 0){
+    printf("Loading block before writing\n");
+  }
 	index_to_write = write_loc_offset;
 	current_block_num = last_write_block;
 	
@@ -325,11 +327,11 @@ int sfs_fwrite(int fileID, char *buf, int length){
 				printf("Error while writing indirect pointer to block\n");
 				return bytes_written*(-1);
 			}else{
-        printf("Succesfully written to block %d\n",current_block_num);
+        printf("Succesfully written %d chars to block %d\n",strlen(rbuf),current_block_num);
       }
 			//get new block  - No, get NEXT block
-      if(file_get_nth_block(++write_loc,*file_inode) <= 0){
-        //Create block
+      if((current_block_num = file_get_nth_block(++write_loc,*file_inode)) <= 0){
+        //No next block in file inode, Create block
         if((new_block_num = find_free_block()) < 1){
           printf("Error while looking for new block\n");
           return bytes_written*(-1);
@@ -351,8 +353,10 @@ int sfs_fwrite(int fileID, char *buf, int length){
 
 		rbuf[index_to_write++] = buf[i];	//Add byte to block
 		bytes_written++;
-		file_inode->size++;		
 		fd_table[fileID].wptr++;
+    if(fd_table[fileID].wptr > file_inode->size){
+      file_inode->size++;   
+    }
 		
 	}
 	//TODO investigate reald nb of bytes written to disk on error
@@ -361,7 +365,7 @@ int sfs_fwrite(int fileID, char *buf, int length){
 		printf("Error while writing indirect pointer to block\n");
 		return -1;
 	}else{
-    printf("Succesfully written to block (last) %d\n",current_block_num);
+    printf("Succesfully written %d char to block (last) %d\n",strlen(rbuf),current_block_num);
   }
 
 	//flush inode
@@ -374,6 +378,9 @@ int sfs_fwrite(int fileID, char *buf, int length){
 		printf("Error while inode table to block\n");
 		return -1;
 	}
+  if(bytes_written != strlen(buf)){
+    printf(">Error, written %d bytes but buf has length %d and length should be %s\n",bytes_written, strlen(buf),length);
+  }
 	return bytes_written;
 }
 int sfs_fread(int fileID, char *buf, int length){
@@ -422,7 +429,7 @@ int sfs_fread(int fileID, char *buf, int length){
   	//block is now in read_buf
 	index_to_read = read_loc_offset;
 	//current_block_num = last_read_block;
-	
+	int old_buflen = 0;
 	for(i=0;i<length;i++){//for each byte
 		if(fd_table[fileID].rptr > file_inode.size){
 			printf("Error, read pointer is out of file\n");
@@ -440,7 +447,7 @@ int sfs_fread(int fileID, char *buf, int length){
 				printf("Error, could not read data block pointed by write pointer\n");
 				return -1;
 			}else{
-        printf("Succesfully read from block %d\n",last_read_block);
+        printf("Succesfully read block %d into block_buf\n",last_read_block);
       }
 
 			//TODO catch errors
@@ -452,13 +459,23 @@ int sfs_fread(int fileID, char *buf, int length){
 
 		//read a byte from block in read_buffer
 		read_buffer[i] = block_buf[index_to_read++];
+    int buflen = strlen(read_buffer);
+    if(buflen == old_buflen){
+      //printf("Error, length of read buffer has not changed\n");
+    }
+    old_buflen = buflen;
 		bytes_read++;
 		fd_table[fileID].rptr++;
 		
 	}
 
-	memcpy(buf,read_buffer, length);
-  	return bytes_read;
+  memcpy(buf,read_buffer, length);
+  if(length != strlen(buf)){
+    printf(">Error, could not read the correct amount of bytes\n");
+  }
+
+  printf("Read: length given: %d, length of buffer: %d, bytes read: %d\n",length,strlen(buf),bytes_read);
+  return bytes_read;
 }
 int sfs_remove(char *file){
 	//remove from directory entry
