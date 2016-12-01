@@ -24,6 +24,7 @@ int write_directory(Directory_entry *dir);
 int read_directory(Directory_entry *dir);
 int write_super_block(int *s_block);
 int read_super_block(int *sblock);
+int sfs_find_in_fd_table(int i_index);
 
 
 
@@ -44,7 +45,7 @@ int DIRECTORY_INDEX;
 Inode inode_table[NUM_INODES];
 Directory_entry directory[DIRECTORY_LENGTH];
 File_descriptor_entry fd_table[FD_TABLE_LENGTH];
-int super_block[256];
+int super_block[256]; //Lot of empty space so no segfault on memcpy for a block
 //int super_block[5];
 unsigned char bitmap[3125];
 //char bitmap[3125];
@@ -176,7 +177,13 @@ int sfs_get_file_size(char* path){
   	return filesize;
 }
 int sfs_fopen(char *name){
-
+  //Create entry in FD table and return this entry
+  //find the first empty spot in fd_table
+  int fd_index;
+  if((fd_index = sfs_find_empty_fd()) == -1){
+    printf("Error while looking for free file descriptor\n");
+    return -1;
+  }
 	//Open or create file and return fd
 	//1. Find its entry in directory or create the file
 	int dir_index = sfs_find_in_directory(name);
@@ -195,13 +202,7 @@ int sfs_fopen(char *name){
 	}
 
 	//Now we have the inode index which is not -1
-	//2. Create entry in FD table and return this entry
-	//find the first empty spot in fd_table
-	int fd_index;
-	if((fd_index = sfs_find_empty_fd()) == -1){
-		printf("Error while looking for free file descriptor\n");
-		return -1;
-	}
+	
 	//fd_table[fd_index]
 	File_descriptor_entry fd = {.inode_index = file_index,	//TODO might want to check for fd_outofbound
 							.rptr=0,
@@ -276,7 +277,7 @@ int sfs_fwrite(int fileID, char *buf, int length){
 	}
 	Inode *file_inode = &inode_table[fd_table[fileID].inode_index];
 	
-//New version, doing step-by-step in a loop
+  //New version, doing step-by-step in a loop
 	int i;
 	int bytes_written = 0;
 	int index_to_write;
@@ -323,19 +324,26 @@ int sfs_fwrite(int fileID, char *buf, int length){
 			if((write_blocks(current_block_num,1,rbuf)) < 0){
 				printf("Error while writing indirect pointer to block\n");
 				return bytes_written*(-1);
-			}
-			//get new block
-				//Create block
-				if((new_block_num = find_free_block()) < 1){
-					printf("Error while looking for new block\n");
-					return bytes_written*(-1);
-				}
-				//Assign in inode_table
-				if(add_block_to_inode(new_block_num, file_inode) < 0){
-					printf("Error while adding new block to inode\n");
-					return bytes_written*(-1);
-				}
-				current_block_num = new_block_num;	//Update block number
+			}else{
+        printf("Succesfully written to block %d\n",current_block_num);
+      }
+			//get new block  - No, get NEXT block
+      if(file_get_nth_block(++write_loc,*file_inode) <= 0){
+        //Create block
+        if((new_block_num = find_free_block()) < 1){
+          printf("Error while looking for new block\n");
+          return bytes_written*(-1);
+        }else{
+          printf("Found free block at: %d\n",new_block_num);
+        }
+        //Assign in inode_table
+        if(add_block_to_inode(new_block_num, file_inode) < 0){
+          printf("Error while adding new block to inode\n");
+          return bytes_written*(-1);
+        }
+        current_block_num = new_block_num;  //Update block number
+      }
+				
 			//set index to 0 and clear buffer
 			index_to_write = 0;
 			memset(rbuf,0,1024);
@@ -352,7 +360,9 @@ int sfs_fwrite(int fileID, char *buf, int length){
 	if((write_blocks(current_block_num,1,rbuf)) < 0){
 		printf("Error while writing indirect pointer to block\n");
 		return -1;
-	}
+	}else{
+    printf("Succesfully written to block (last) %d\n",current_block_num);
+  }
 
 	//flush inode
 	//We never have to re-read inode table since its always modified in memory as well, so its in sync
@@ -364,7 +374,6 @@ int sfs_fwrite(int fileID, char *buf, int length){
 		printf("Error while inode table to block\n");
 		return -1;
 	}
-	
 	return bytes_written;
 }
 int sfs_fread(int fileID, char *buf, int length){
@@ -384,7 +393,7 @@ int sfs_fread(int fileID, char *buf, int length){
 	int i;
 	int bytes_read = 0;
 	int index_to_read;
-	int current_block_num;
+	//int current_block_num;
 	//int int_in_block = 1024/INT_SIZE;
 	char read_buffer[length];
 	memset(read_buffer,0,length*sizeof(char));
@@ -407,9 +416,12 @@ int sfs_fread(int fileID, char *buf, int length){
 	if(read_blocks(last_read_block, 1, block_buf) < 0){
 		printf("Error, could not read data block pointed by write pointer\n");
 		return -1;
-	}	//block is now in read_buf
+	}else{
+    printf("Succesfully read from block %d\n",last_read_block);
+  }
+  	//block is now in read_buf
 	index_to_read = read_loc_offset;
-	current_block_num = last_read_block;
+	//current_block_num = last_read_block;
 	
 	for(i=0;i<length;i++){//for each byte
 		if(fd_table[fileID].rptr > file_inode.size){
@@ -427,7 +439,9 @@ int sfs_fread(int fileID, char *buf, int length){
 			if(read_blocks(last_read_block, 1, block_buf) < 0){
 				printf("Error, could not read data block pointed by write pointer\n");
 				return -1;
-			}
+			}else{
+        printf("Succesfully read from block %d\n",last_read_block);
+      }
 
 			//TODO catch errors
 				
@@ -451,6 +465,14 @@ int sfs_remove(char *file){
 	//get its number
 	int file_index = sfs_find_in_directory(file);
 	int inode_num = directory[file_index].inode_index;
+  //Close the file first
+  int fd_entry;
+  if((fd_entry = sfs_find_in_fd_table(inode_num)) >= 0){
+    printf("Closing file before removing it\n");
+    if(sfs_fclose(fd_entry)){
+      printf("Error, could not close file, cancelling rm\n");
+    }
+  }
 	//directory[file_index] = {.filename = ""};	//clear the entry
 	memset(&directory[file_index], 0, sizeof(Directory_entry));
 	Inode *inode = &inode_table[inode_num];
@@ -499,24 +521,26 @@ int sfs_fcreate(char *name){	//create file and return its inode_index
     printf("Too many characters in string, maximum is %d\n",20);
     return -1;
   }
-
+  //Add file to directory
+  //find empty directory entry
+  int new_dir_index=-1;
+  if((new_dir_index = sfs_find_empty_dir_entry()) == -1){
+    printf("Error while looking for free directory entry\n");
+    return -1;
+  }
 	//create an inode
 	//find empty inode
 	int new_inode_index=-1;
 	if((new_inode_index = sfs_find_empty_inode()) == -1){
 		printf("Error while looking for free inode entry\n");
+    memset(&directory[new_dir_index], 0, sizeof(Directory_entry));
+    printf("Reverting just allocated dir entry\n");
 		return -1;
 	}
 	//Populate inode
 	Inode new_inode = {.mode=1};	//Size and pointer are 0
 	inode_table[new_inode_index] = new_inode;
-	//Add file to directory
-	//find empty directory entry
-	int new_dir_index=-1;
-	if((new_dir_index = sfs_find_empty_dir_entry()) == -1){
-		printf("Error while looking for free directory entry\n");
-		return -1;
-	}
+	
 	//Populate directory entry
 	Directory_entry new_dir_entry = { .inode_index = new_inode_index};
   strcpy(new_dir_entry.filename, name);
@@ -581,6 +605,20 @@ int sfs_find_in_directory(char *name){
 	}
 	printf("File %s not found in directory\n",name);
 	return -1;
+}
+
+int sfs_find_in_fd_table(int i_index){
+  //Find a file in the file descriptor table and return its index
+  int i;
+  for(i=0;i<FD_TABLE_LENGTH;i++){
+    if(fd_table[i].inode_index < 1){
+      continue;
+    }
+    if(fd_table[i].inode_index == i_index){
+      return i;
+    }
+  }
+  return -1;
 }
 
 int set_block_free(int blocknum){	//16 to 24995
