@@ -319,9 +319,8 @@ int sfs_fwrite(int fileID, char *buf, int length){
         }
         last_write_block = new_block_num;
   }else{
-    //we retreived a block, make sure we are appending to the good location DEBUG: when are we writing ?
-    int location = fd_table[fileID].wptr;
-    printf(">>Block retreived: %d at %d<<\n",last_write_block, write_loc_offset );
+    //we retreived a block, make sure we are appending to the good location
+    //printf(">>Block retreived: %d at %d<<\n",last_write_block, write_loc_offset );
   }
 
 	char rbuf[1024];
@@ -329,7 +328,7 @@ int sfs_fwrite(int fileID, char *buf, int length){
 		printf("Error, could not read data block pointed by write pointer\n");
 		return -1;
 	}else if(write_loc_offset != 0){
-    printf("Loading block before writing\n");
+    //printf("Loading block before writing\n");
   }
 	index_to_write = write_loc_offset;
 	current_block_num = last_write_block;
@@ -341,8 +340,12 @@ int sfs_fwrite(int fileID, char *buf, int length){
 				printf("Error while writing indirect pointer to block\n");
 				return bytes_written*(-1);
 			}else{
-        printf("Succesfully written %d chars to block %d\n",strlen(rbuf),current_block_num);
+        //printf("Succesfully written %d chars to block %d\n",strlen(rbuf),current_block_num);
       }
+      //set index to 0 and clear buffer
+      index_to_write = 0;
+      memset(rbuf,0,1024);
+
 			//get new block  - No, get NEXT block
       if((current_block_num = file_get_nth_block(++write_loc,*file_inode)) <= 0){
         //No next block in file inode, Create block
@@ -350,7 +353,7 @@ int sfs_fwrite(int fileID, char *buf, int length){
           printf("Error while looking for new block\n");
           return bytes_written*(-1);
         }else{
-          printf("Found free block at: %d\n",new_block_num);
+          //printf("Found free block at: %d\n",new_block_num);
         }
         //Assign in inode_table
         if(add_block_to_inode(new_block_num, file_inode) < 0){
@@ -358,11 +361,18 @@ int sfs_fwrite(int fileID, char *buf, int length){
           return bytes_written*(-1);
         }
         current_block_num = new_block_num;  //Update block number
+      }else{
+        //found next block, load it
+        if(read_blocks(current_block_num, 1, rbuf) < 0){
+          printf("Error, could not read data block pointed by write pointer\n");
+          return -1;
+        }
+        if(rbuf[1]=='\0'){
+          printf("Error, loaded empty block\n");
+        }
       }
 				
-			//set index to 0 and clear buffer
-			index_to_write = 0;
-			memset(rbuf,0,1024);
+			
 		}	//now we know there is space to write a char
     if(i !=0){
       if(buf[i-1]=='\0'||buf[i]=='\0'){
@@ -383,7 +393,7 @@ int sfs_fwrite(int fileID, char *buf, int length){
 		printf("Error while writing indirect pointer to block\n");
 		return -1;
 	}else{
-    printf("Succesfully written %d char to block (last) %d\n",strlen(rbuf),current_block_num);
+    //printf("Succesfully written %d char to block (last) %d\n",strlen(rbuf),current_block_num);
   }
 
 	//flush inode
@@ -450,7 +460,7 @@ int sfs_fread(int fileID, char *buf, int length){
 		printf("Error, could not read data block pointed by write pointer\n");
 		return -1;
 	}else{
-    printf("Succesfully read from block %d\n",last_read_block);
+    //printf("Succesfully read from block %d\n",last_read_block);
   }
   	//block is now in read_buf
 	index_to_read = read_loc_offset;
@@ -460,7 +470,7 @@ int sfs_fread(int fileID, char *buf, int length){
 		if(fd_table[fileID].rptr > file_inode.size){
 			printf("Error, read pointer is out of file\n");
 			memcpy(buf,read_buffer, length);
-  		return bytes_read*-1;
+  		return bytes_read-1;
 		}
 		if(index_to_read >= 1024){	//reached end of block
 			//fetch next block
@@ -473,7 +483,7 @@ int sfs_fread(int fileID, char *buf, int length){
 				printf("Error, could not read data block pointed by write pointer\n");
 				return -1;
 			}else{
-        printf("Succesfully read block %d into block_buf\n",last_read_block);
+        //printf("Succesfully read block %d into block_buf\n",last_read_block);
       }
 
 			//TODO catch errors
@@ -498,9 +508,10 @@ int sfs_fread(int fileID, char *buf, int length){
   memcpy(buf,read_buffer, length);
   if(length != strlen(buf)){
     printf(">Error, could not read the correct amount of bytes\n");
+    printf("Read: length given: %d, length of buffer: %d, bytes read: %d\n",length,strlen(buf),bytes_read);
   }
 
-  printf("Read: length given: %d, length of buffer: %d, bytes read: %d\n",length,strlen(buf),bytes_read);
+  //printf("Read: length given: %d, length of buffer: %d, bytes read: %d\n",length,strlen(buf),bytes_read);
   return bytes_read;
 }
 int sfs_remove(char *file){
@@ -591,6 +602,12 @@ int sfs_fcreate(char *name){	//create file and return its inode_index
   strcpy(new_dir_entry.filename, name);
 	directory[new_dir_index] = new_dir_entry;
 	//Here we could modify the directory inode if there was anything to do with it
+
+  //Save directory to disk
+  if ( write_directory(directory) < 0){    //First block, 1 block
+      printf("Error while writing directory to disk\n");
+      return -1;
+  }
 
 	//Save inode table to disk
 	if(sizeof(inode_table)/1024 > INODE_TABLE_LENGHT){
