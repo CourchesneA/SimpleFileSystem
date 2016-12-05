@@ -282,6 +282,8 @@ int sfs_fwrite(int fileID, char *buf, int length){
 		return -1;
 	}
 	Inode *file_inode = &inode_table[fd_table[fileID].inode_index];
+  int initial_size = file_inode->size;
+  int initial_wptr = fd_table[fileID].wptr;
 	
 
   //New version, doing step-by-step in a loop
@@ -316,6 +318,10 @@ int sfs_fwrite(int fileID, char *buf, int length){
           return bytes_written*(-1);
         }
         last_write_block = new_block_num;
+  }else{
+    //we retreived a block, make sure we are appending to the good location DEBUG: when are we writing ?
+    int location = fd_table[fileID].wptr;
+    printf(">>Block retreived: %d at %d<<\n",last_write_block, write_loc_offset );
   }
 
 	char rbuf[1024];
@@ -358,7 +364,11 @@ int sfs_fwrite(int fileID, char *buf, int length){
 			index_to_write = 0;
 			memset(rbuf,0,1024);
 		}	//now we know there is space to write a char
-
+    if(i !=0){
+      if(buf[i-1]=='\0'||buf[i]=='\0'){
+        printf("\n\n>>Error, cannot write null or after null<<\n");
+      }
+    }
 		rbuf[index_to_write++] = buf[i];	//Add byte to block
 		bytes_written++;
 		fd_table[fileID].wptr++;
@@ -387,7 +397,15 @@ int sfs_fwrite(int fileID, char *buf, int length){
 		return -1;
 	}
   if(bytes_written != strlen(buf)){
-    printf(">Error, written %d bytes but buf has length %d and length should be %s\n",bytes_written, strlen(buf),length);
+    printf(">Error, written %d bytes but buf has length %d and length should be %d\n",bytes_written, strlen(buf),length);
+  }
+  //check if size is correct
+  if(fd_table[fileID].wptr > initial_size){
+    int delta_size = file_inode->size - initial_size;
+    int length_added = length - (initial_size - initial_wptr);
+    if(delta_size != length_added || fd_table[fileID].wptr != (initial_wptr+length)){
+      printf(">Error, unmatching lenghts\n");
+    }
   }
 	return bytes_written;
 }
