@@ -1,7 +1,7 @@
 //Functions you should implement. 
 //Return -1 for error besides mksfs
 
-typedef struct Inode {
+typedef struct mInode {
 	int mode;
 	int linkcnt;
 	int uidl;
@@ -9,7 +9,7 @@ typedef struct Inode {
 	int size;
 	int ptr[12];
 	int indptr;
-} Inode;
+} mInode;
 
 typedef struct Directory_entry {
 	char filename[21];

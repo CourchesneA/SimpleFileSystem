@@ -16,10 +16,10 @@ int set_block_used(int blocknum);
 int find_free_block();
 int read_bitmap();
 int write_bitmap(unsigned char* bitmap);
-int add_block_to_inode(int blocknum, Inode *inode);
-int file_get_nth_block(int blocknum, Inode inode);
-int write_inode_table(Inode *i_table);
-int read_inode_table(Inode *i_table);
+int add_block_to_inode(int blocknum, mInode *inode);
+int file_get_nth_block(int blocknum, mInode inode);
+int write_inode_table(mInode *i_table);
+int read_inode_table(mInode *i_table);
 int write_directory(Directory_entry *dir);
 int read_directory(Directory_entry *dir);
 int write_super_block(int *s_block);
@@ -43,7 +43,7 @@ const int FREE_BITMAP_BLK = NUM_BLOCKS-FREE_BITMAP_LENGTH-1;  //-1 ?
 int DIRECTORY_BLK_INDEX = FREE_BITMAP_BLK - DIRECTORY_BLOCKS;
 int DIRECTORY_INDEX;
 //In-memory structures;
-Inode inode_table[NUM_INODES];
+mInode inode_table[NUM_INODES];
 Directory_entry directory[DIRECTORY_LENGTH];
 File_descriptor_entry fd_table[FD_TABLE_LENGTH];
 
@@ -89,9 +89,9 @@ void mksfs(int fresh){
     }
 
     //initialize inode table
-    memset(inode_table, 0, NUM_INODES* sizeof(Inode));
+    memset(inode_table, 0, NUM_INODES* sizeof(mInode));
 		//initialize the first Inode for root directory
-		Inode root_inode = {.mode=1};	//Every other value in the inode are 0. We use mode to say that the inode is used
+		mInode root_inode = {.mode=1};	//Every other value in the inode are 0. We use mode to say that the inode is used
 		inode_table[ROOT_DIRECTORY]=root_inode;
     //write the inode table
     if ( write_inode_table(inode_table)){   //Second block block, 1 block (3 for the whole table)
@@ -281,7 +281,7 @@ int sfs_fwrite(int fileID, char *buf, int length){
 		printf("Error, could not find file descriptor in open file table \n");
 		return -1;
 	}
-	Inode *file_inode = &inode_table[fd_table[fileID].inode_index];
+	mInode *file_inode = &inode_table[fd_table[fileID].inode_index];
   int initial_size = file_inode->size;
   int initial_wptr = fd_table[fileID].wptr;
 	
@@ -440,7 +440,7 @@ int sfs_fread(int fileID, char *buf, int length){
 	//int int_in_block = 1024/INT_SIZE;
 	char read_buffer[length];
 	memset(read_buffer,0,length*sizeof(char));
-	Inode file_inode = inode_table[fd_table[fileID].inode_index];
+	mInode file_inode = inode_table[fd_table[fileID].inode_index];
 
   if(file_inode.size == 0){
     printf("Can't read empty file\n");
@@ -529,7 +529,7 @@ int sfs_remove(char *file){
   }
 	//directory[file_index] = {.filename = ""};	//clear the entry
 	memset(&directory[file_index], 0, sizeof(Directory_entry));
-	Inode *inode = &inode_table[inode_num];
+	mInode *inode = &inode_table[inode_num];
 	//free blocks
 	int i;
 	for(i=0;i<12;i++){	//clear block from direct pointers
@@ -562,7 +562,7 @@ int sfs_remove(char *file){
 	
 	//remove inode
 	//inode_table[inode_num] = {};
-	memset(&inode_table[inode_num],0,sizeof(Inode));
+	memset(&inode_table[inode_num],0,sizeof(mInode));
 	
   	return 0;
 }
@@ -594,7 +594,7 @@ int sfs_fcreate(char *name){	//create file and return its inode_index
 		return -1;
 	}
 	//Populate inode
-	Inode new_inode = {.mode=1};	//Size and pointer are 0
+	mInode new_inode = {.mode=1};	//Size and pointer are 0
 	inode_table[new_inode_index] = new_inode;
 	
 	//Populate directory entry
@@ -765,7 +765,7 @@ int find_free_block(){	//Also set the block as used
 	return -1;
 }
 
-int add_block_to_inode(int blocknum, Inode *inode){
+int add_block_to_inode(int blocknum, mInode *inode){
 	int i;
 	for(i=0; i<12; i++){
 		if(!(inode->ptr[i] > 0)){	//empty ptr, use this one
@@ -821,7 +821,7 @@ int add_block_to_inode(int blocknum, Inode *inode){
 	return 0;
 }
 
-int file_get_nth_block(int blocknum, Inode inode){
+int file_get_nth_block(int blocknum, mInode inode){
 	int int_in_block = 1024/INT_SIZE;
 	int block_index;
 	if(blocknum >= 0 && blocknum < 12){
@@ -859,7 +859,7 @@ int read_bitmap(unsigned char *bitmap){
   return 0;
 }
 
-int write_inode_table(Inode *i_table){
+int write_inode_table(mInode *i_table){
   if(write_blocks(INODE_TABLE_BLK,INODE_TABLE_LENGHT, i_table)<0){
     printf("Error while writing inode table to disk\n");
     return -1;
@@ -867,7 +867,7 @@ int write_inode_table(Inode *i_table){
   return 0;
 }
 
-int read_inode_table(Inode *i_table){
+int read_inode_table(mInode *i_table){
   if(read_blocks(INODE_TABLE_BLK,INODE_TABLE_LENGHT, i_table)<0){
     printf("Error while reading inode table from disk\n");
     return -1;

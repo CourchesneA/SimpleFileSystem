@@ -4,7 +4,7 @@
 
 CC = clang -g -Wall
 LDFLAGS = `pkg-config fuse --cflags --libs`
-EXECUTABLE=sfs
+EXECUTABLE=AnthonyCourchesneSFS
 
 SOURCES= disk_emu.c sfs_api.c fuse_wrappers.c
 SOURCES_TEST1= disk_emu.c sfs_api.c sfs_test1.c tests.c
