@@ -77,7 +77,7 @@ int INT_SIZE;
 
 void mksfs(int fresh){
   //Format the given virtual disk and creates a SFS on top of it. fresh = create, else opened
-	char *filename = "cVirtualDisk";		//Name of the virtual disk file
+	char *filename = "cVirtualDisk.sfs";		//Name of the virtual disk file
 	INT_SIZE = sizeof(int);
 
 	if(fresh){
