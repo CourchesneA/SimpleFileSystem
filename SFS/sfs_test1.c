@@ -22,14 +22,14 @@ int simple_test(){
   //Init fresh file system
   mksfs(1);
   //So now we should be able to open and close files ... 
-  test_open_new_files(file_names, file_id, num_file, &err_no);  //Done
-  test_close_files(file_names, file_id, num_file, &err_no);     //done
+  test_open_new_files(file_names, file_id, num_file, &err_no);
+  test_close_files(file_names, file_id, num_file, &err_no);
   //Reopen them after closing
-  test_open_old_files(file_names, file_id, num_file, &err_no);  //done
+  test_open_old_files(file_names, file_id, num_file, &err_no);
   //Now will attempt to write to file, very small chunk of text
   for(int i = 0; i < iterations; i++){
-    test_simple_write_files(file_id, file_size, write_ptr, write_buf, num_file, &err_no); //done
-    test_simple_read_files(file_id, file_size, write_buf, num_file, &err_no);             //done
+    test_simple_write_files(file_id, file_size, write_ptr, write_buf, num_file, &err_no);
+    test_simple_read_files(file_id, file_size, write_buf, num_file, &err_no);
     test_read_all_files(file_id, file_size, write_buf, num_file, &err_no);
     if(i < iterations - 1) //Fun with frseek and fwseek
       test_seek(file_id, file_size, write_ptr, write_buf, num_file, 10, &err_no);

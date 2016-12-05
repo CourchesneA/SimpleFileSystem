@@ -21,11 +21,11 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <errno.h>
+#include <sys/types.h>
 #include <sys/time.h>
 #include "disk_emu.h"
 #include "sfs_api.h"
 #include "tests.h"
-
 
 static int fuse_getattr(const char *path, struct stat *stbuf)
 {
@@ -38,9 +38,13 @@ static int fuse_getattr(const char *path, struct stat *stbuf)
         stbuf->st_mode = S_IFDIR | 0755;
         stbuf->st_nlink = 2;
     } else if((size = sfs_get_file_size(&path[1])) != -1) {
-        stbuf->st_mode = S_IFREG | 0444;
+        stbuf->st_mode = S_IFREG | 0666;
         stbuf->st_nlink = 1;
         stbuf->st_size = size;
+        // BUGFIX ADDED THIS FOR PROPER OWNERSHIP
+        //THANKS SAHAS FOR THIS FIX
+        stbuf->st_gid = getegid();
+        stbuf->st_uid = geteuid();
     } else
         res = -ENOENT;
     
@@ -195,6 +199,7 @@ static struct fuse_operations xmp_oper = {
 int main(int argc, char *argv[])
 {
     mksfs(1);
+    printf("Created fs\n");
     
     return fuse_main(argc, argv, &xmp_oper, NULL);
 }

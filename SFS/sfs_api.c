@@ -5,6 +5,27 @@
 #include <math.h>
 #include <stdlib.h>
 
+typedef struct mInode {
+  int mode;
+  int linkcnt;
+  int uidl;
+  int gid;
+  int size;
+  int ptr[12];
+  int indptr;
+} mInode;
+
+typedef struct Directory_entry {
+  char filename[21];
+  int inode_index;
+} Directory_entry;
+
+typedef struct File_descriptor_entry {
+  int inode_index;
+  int rptr;
+  int wptr;
+} File_descriptor_entry;
+
 //helpers
 int sfs_fcreate(char *name);
 int sfs_find_empty_inode();
